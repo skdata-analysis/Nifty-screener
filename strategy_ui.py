@@ -13,6 +13,7 @@ from strategy_engine import (
     bear_put_spread,
     iron_condor,
 )
+from strategy_engine import calculate_strategy_metrics
 
 
 # ============================================================
@@ -30,20 +31,87 @@ def _safe_float(value, default=0.0):
 
 def _get_premium(df, strike, option_type):
     """
-    Get current option premium from option-chain dataframe.
+    Robust live premium lookup.
+
+    Supports common CE/PE LTP column names.
     """
 
-    column = "ce_ltp" if option_type == "CE" else "pe_ltp"
-
-    if column not in df.columns:
+    if df is None or df.empty:
         return 0.0
 
-    rows = df[df["strike"] == strike]
+    # --------------------------------------------------------
+    # STRIKE COLUMN
+    # --------------------------------------------------------
+
+    strike_col = None
+
+    for col in [
+        "strike",
+        "strike_price",
+        "strikePrice",
+        "STRIKE",
+    ]:
+        if col in df.columns:
+            strike_col = col
+            break
+
+    if strike_col is None:
+        return 0.0
+
+    temp = df.copy()
+
+    temp[strike_col] = pd.to_numeric(
+        temp[strike_col],
+        errors="coerce"
+    )
+
+    rows = temp[
+        temp[strike_col] == float(strike)
+    ]
 
     if rows.empty:
         return 0.0
 
-    return _safe_float(rows[column].iloc[0])
+    # --------------------------------------------------------
+    # PREMIUM COLUMN
+    # --------------------------------------------------------
+
+    if option_type == "CE":
+
+        candidates = [
+            "ce_ltp",
+            "CE_LTP",
+            "ce_last_price",
+            "CE_LAST_PRICE",
+            "call_ltp",
+            "call_price",
+        ]
+
+    else:
+
+        candidates = [
+            "pe_ltp",
+            "PE_LTP",
+            "pe_last_price",
+            "PE_LAST_PRICE",
+            "put_ltp",
+            "put_price",
+        ]
+
+    premium_col = None
+
+    for col in candidates:
+
+        if col in rows.columns:
+            premium_col = col
+            break
+
+    if premium_col is None:
+        return 0.0
+
+    return _safe_float(
+        rows[premium_col].iloc[0]
+    )
 def _validate_strategy(strategy, selections):
     """
     Validate strike relationships for option strategies.
@@ -469,18 +537,68 @@ def render_strategy_tab(df, spot, atm, expiry):
         '<div class="section-title">Strategy Analysis</div>',
         unsafe_allow_html=True
     )
+    # ============================================================
+    # LIVE MARKET HEADER
+    # ============================================================
 
-    if df.empty:
+    st.markdown("### LIVE MARKET")
+
+    m1, m2, m3, m4 = st.columns(4)
+
+    with m1:
+        st.metric(
+            "NIFTY",
+            f"{spot:,.2f}"
+            if spot is not None
+            else "-"
+        )
+
+    with m2:
+        st.metric(
+            "ATM",
+            f"{atm:,.0f}"
+            if atm is not None
+            else "-"
+        )
+
+    with m3:
+        st.metric(
+            "EXPIRY",
+            expiry
+            if expiry is not None
+            else "-"
+        )
+    with m4:
+
+        st.metric(
+            "ATM DISTANCE",
+            f"{abs(float(spot) - float(atm)):,.0f}"
+            if spot is not None and atm is not None
+            else "-"
+        )
+
+
+# ============================================================
+# OPTION CHAIN VALIDATION
+# ============================================================
+
+    if df is None or df.empty:
+
         st.warning(
             "Option-chain data is not available."
         )
+
         return
 
+
     if "strike" not in df.columns:
+
         st.error(
             "Strike column is missing from option-chain data."
         )
+
         return
+
 
     strikes = sorted(
         pd.to_numeric(
@@ -491,10 +609,13 @@ def render_strategy_tab(df, spot, atm, expiry):
         .unique()
     )
 
-    if not strikes:
+
+    if len(strikes) == 0:
+
         st.warning(
             "No valid strikes available."
         )
+
         return
 
     # --------------------------------------------------------
@@ -901,85 +1022,66 @@ def render_strategy_tab(df, spot, atm, expiry):
     )
 
     if payoff_df.empty:
-        st.warning(
-            "Unable to calculate strategy payoff."
-        )
+        st.warning("Unable to calculate strategy payoff.")
         return
 
     # --------------------------------------------------------
-    # METRICS
+    # RISK METRICS
     # --------------------------------------------------------
 
-    max_profit = payoff_df[
-        "strategy_pnl"
-    ].max()
-
-    max_loss = payoff_df[
-        "strategy_pnl"
-    ].min()
-
-    breakevens = _calculate_breakevens(
-        payoff_df
+    risk = calculate_strategy_metrics(
+        legs,
+        price_range
     )
+
+    net_premium = risk["net_premium"]
+    risk_max_profit = risk["max_profit"]
+    risk_max_loss = risk["max_loss"]
+    risk_breakevens = risk["breakevens"]
+
+    payoff_max_profit = payoff_df["strategy_pnl"].max()
+    payoff_max_loss = payoff_df["strategy_pnl"].min()
+    breakevens = _calculate_breakevens(payoff_df)
 
     # --------------------------------------------------------
     # STRATEGY SUMMARY
     # --------------------------------------------------------
 
-    st.markdown(
-        "### Strategy Summary"
-    )
+    st.markdown("### Strategy Summary")
 
     m1, m2, m3, m4 = st.columns(4)
 
     with m1:
-
         st.metric(
             "MAX PROFIT",
             (
                 "UNLIMITED"
-                if strategy in [
-                    "LONG STRADDLE",
-                    "LONG STRANGLE"
-                ]
-                else f"₹{max_profit:,.2f}"
+                if strategy in ["LONG STRADDLE", "LONG STRANGLE"]
+                else f"₹{payoff_max_profit:,.2f}"
             )
         )
 
     with m2:
-
         st.metric(
             "MAX LOSS",
             (
                 "UNLIMITED"
-                if strategy in [
-                    "SHORT STRADDLE",
-                    "SHORT STRANGLE"
-                ]
-                else f"₹{max_loss:,.2f}"
+                if strategy in ["SHORT STRADDLE", "SHORT STRANGLE"]
+                else f"₹{payoff_max_loss:,.2f}"
             )
         )
 
     with m3:
-
-        if breakevens:
-
-            text = " / ".join(
-                f"{x:,.2f}"
-                for x in breakevens[:2]
-            )
-
-        else:
-
-            text = "-"
-
         st.metric(
             "BREAKEVEN",
-            text
+            (
+                " / ".join(f"{x:,.2f}" for x in breakevens[:2])
+                if breakevens
+                else "-"
+            )
         )
 
     with m4:
-
         current_index = (
             (payoff_df["underlying_price"] - spot)
             .abs()
@@ -997,18 +1099,53 @@ def render_strategy_tab(df, spot, atm, expiry):
         )
 
     # --------------------------------------------------------
-    # LEGS
+    # STRATEGY RISK
     # --------------------------------------------------------
 
-    st.markdown(
-        "### Strategy Legs"
-    )
+    st.markdown("### Strategy Risk")
 
-    legs_df = pd.DataFrame(
-        legs
-    )
+    r1, r2, r3, r4 = st.columns(4)
 
-    legs_df = legs_df[
+    with r1:
+        st.metric("NET PREMIUM", f"₹{net_premium:,.2f}")
+
+    with r2:
+        st.metric(
+            "MAX PROFIT",
+            (
+                "UNLIMITED"
+                if np.isinf(risk_max_profit)
+                else f"₹{risk_max_profit:,.2f}"
+            )
+        )
+
+    with r3:
+        st.metric(
+            "MAX LOSS",
+            (
+                "UNLIMITED"
+                if np.isinf(risk_max_loss)
+                else f"₹{risk_max_loss:,.2f}"
+            )
+        )
+
+    with r4:
+        st.metric(
+            "BREAKEVEN",
+            (
+                " / ".join(f"{x:,.0f}" for x in risk_breakevens)
+                if risk_breakevens
+                else "-"
+            )
+        )
+
+    # --------------------------------------------------------
+    # STRATEGY LEGS
+    # --------------------------------------------------------
+
+    st.markdown("### Strategy Legs")
+
+    legs_df = pd.DataFrame(legs)[
         [
             "action",
             "option_type",
@@ -1029,6 +1166,7 @@ def render_strategy_tab(df, spot, atm, expiry):
     st.dataframe(
         legs_df,
         width="stretch",
+        height=170,
         hide_index=True
     )
 
@@ -1036,29 +1174,45 @@ def render_strategy_tab(df, spot, atm, expiry):
     # PAYOFF CHART
     # --------------------------------------------------------
 
-    st.markdown(
-        "### Expiry Payoff"
-    )
+    st.markdown("### Expiry Payoff")
 
-    chart = _strategy_chart(
-        payoff_df,
-        spot
-    )
+    chart = _strategy_chart(payoff_df, spot)
 
     if chart:
-
         st.altair_chart(
             chart,
-            width="stretch"
+            width="stretch",
+            height=360
+        )
+    # ============================================================
+    # PREMIUM VALIDATION
+    # ============================================================
+
+    invalid_legs = [
+        leg
+        for leg in legs
+        if float(leg.get("premium", 0)) <= 0
+    ]
+
+    if invalid_legs:
+
+        st.warning(
+            "Live premium could not be found for one or more "
+            "strategy legs. Check the option-chain columns."
         )
 
+        st.dataframe(
+            pd.DataFrame(legs),
+            width="stretch",
+            hide_index=True
+        )
+
+        return
     # --------------------------------------------------------
     # P&L TABLE
     # --------------------------------------------------------
 
-    st.markdown(
-        "### Strategy P&L"
-    )
+    st.markdown("### Strategy P&L")
 
     display_df = payoff_df.copy()
 
@@ -1076,7 +1230,6 @@ def render_strategy_tab(df, spot, atm, expiry):
     st.dataframe(
         display_df,
         width="stretch",
-        height=300,
+        height=190,
         hide_index=True
     )
-    

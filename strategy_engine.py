@@ -359,4 +359,227 @@ def iron_condor(
             "BUY"
         )
     ]
+# ============================================================
+# STRATEGY METRICS
+# ============================================================
+
+def calculate_strategy_metrics(legs, price_range):
+    """
+    Calculate strategy payoff and basic risk metrics.
+    """
+
+    result = calculate_strategy_payoff(
+        legs,
+        price_range
+    )
+
+    prices = result["underlying_price"]
+    pnl = result["strategy_pnl"]
+
+    max_profit = float(pnl.max())
+    max_loss = float(pnl.min())
+
+    # --------------------------------------------------------
+    # NET PREMIUM
+    # --------------------------------------------------------
+
+    net_premium = 0.0
+
+    for leg in legs:
+
+        value = (
+            leg["premium"]
+            * leg["quantity"]
+        )
+
+        if leg["action"] == "BUY":
+            net_premium -= value
+
+        elif leg["action"] == "SELL":
+            net_premium += value
+
+    # --------------------------------------------------------
+    # BREAKEVEN
+    # --------------------------------------------------------
+
+    breakevens = []
+
+    for i in range(len(pnl) - 1):
+
+        p1 = float(pnl.iloc[i])
+        p2 = float(pnl.iloc[i + 1])
+
+        x1 = float(prices.iloc[i])
+        x2 = float(prices.iloc[i + 1])
+
+        if p1 == 0:
+
+            breakevens.append(x1)
+
+        elif p1 * p2 < 0:
+
+            breakeven = (
+                x1
+                + (0 - p1)
+                * (x2 - x1)
+                / (p2 - p1)
+            )
+
+            breakevens.append(
+                float(breakeven)
+            )
+
+    return {
+        "net_premium": float(net_premium),
+        "max_profit": max_profit,
+        "max_loss": max_loss,
+        "breakevens": breakevens,
+        "payoff": result,
+    }
+    # ============================================================
+# STRATEGY METRICS
+# ============================================================
+
+def calculate_strategy_metrics(
+    legs,
+    price_range,
+    spot=None
+):
+    """
+    Calculate summary risk metrics for a multi-leg option strategy.
+    """
+
+    payoff_df = calculate_strategy_payoff(
+        legs,
+        price_range
+    )
+
+    if payoff_df.empty:
+        return {
+            "max_profit": 0.0,
+            "max_loss": 0.0,
+            "breakeven_points": [],
+            "net_premium": 0.0,
+            "spot_pnl": 0.0,
+            "reward_risk": None,
+        }
+
+    pnl = pd.to_numeric(
+        payoff_df["strategy_pnl"],
+        errors="coerce"
+    ).fillna(0)
+
+    prices = pd.to_numeric(
+        payoff_df["underlying_price"],
+        errors="coerce"
+    )
+
+    max_profit = float(pnl.max())
+    max_loss = float(pnl.min())
+
+    # --------------------------------------------------------
+    # NET PREMIUM
+    # --------------------------------------------------------
+
+    net_premium = 0.0
+
+    for leg in legs:
+
+        premium = float(
+            leg.get("premium", 0)
+        )
+
+        quantity = int(
+            leg.get("quantity", 1)
+        )
+
+        action = leg.get(
+            "action",
+            "BUY"
+        ).upper()
+
+        if action == "BUY":
+            net_premium -= premium * quantity
+
+        elif action == "SELL":
+            net_premium += premium * quantity
+
+    # --------------------------------------------------------
+    # BREAKEVEN POINTS
+    # --------------------------------------------------------
+
+    breakevens = []
+
+    for i in range(len(pnl) - 1):
+
+        p1 = pnl.iloc[i]
+        p2 = pnl.iloc[i + 1]
+
+        if p1 == 0:
+            breakevens.append(
+                float(prices.iloc[i])
+            )
+
+        elif p1 * p2 < 0:
+
+            x1 = float(prices.iloc[i])
+            x2 = float(prices.iloc[i + 1])
+
+            # Linear interpolation
+            be = x1 + (
+                (0 - p1)
+                * (x2 - x1)
+                / (p2 - p1)
+            )
+
+            breakevens.append(
+                round(be, 2)
+            )
+
+    # Remove duplicates
+    breakevens = sorted(
+        set(
+            round(x, 2)
+            for x in breakevens
+        )
+    )
+
+    # --------------------------------------------------------
+    # CURRENT SPOT P&L
+    # --------------------------------------------------------
+
+    spot_pnl = None
+
+    if spot is not None:
+
+        nearest_idx = (
+            (prices - float(spot))
+            .abs()
+            .idxmin()
+        )
+
+        spot_pnl = float(
+            pnl.loc[nearest_idx]
+        )
+
+    # --------------------------------------------------------
+    # REWARD / RISK
+    # --------------------------------------------------------
+
+    reward_risk = None
+
+    if max_loss < 0:
+
+        reward_risk = (
+            max_profit / abs(max_loss)
+        )
+
+    return {
+        "max_profit": max_profit,
+        "max_loss": max_loss,
+        "breakeven_points": breakevens,
+        "net_premium": net_premium,
+        "spot_pnl": spot_pnl,
+        "reward_risk": reward_risk,
+    }
     

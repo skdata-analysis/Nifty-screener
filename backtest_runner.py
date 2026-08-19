@@ -1,242 +1,545 @@
-import os
-import glob
 import pandas as pd
+
+from backtest_data import (
+    load_historical_snapshots,
+)
 
 from backtest_engine import (
     run_single_trade,
     run_backtest,
-    calculate_backtest_metrics
-)
-from historical_chain_adapter import (
-    convert_historical_snapshot
+    calculate_backtest_metrics,
 )
 
 
 # ============================================================
-# PATHS
+# SNAPSHOT HELPERS
 # ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
+def find_snapshot_index(
+    snapshots,
+    timestamp
+):
+    """
+    Find the snapshot index closest to the requested timestamp.
+    """
 
-CHAIN_DIR = os.path.join(
-    BASE_DIR,
-    "data",
-    "historical",
-    "chains"
-)
+    if not snapshots:
+        return None
 
-
-# ============================================================
-# LOAD CHAIN SNAPSHOTS
-# ============================================================
-
-def load_chain_snapshots():
-
-    files = sorted(
-        glob.glob(
-            os.path.join(
-                CHAIN_DIR,
-                "chain_*.csv"
-            )
-        )
+    target = pd.to_datetime(
+        timestamp,
+        errors="coerce"
     )
 
-    if not files:
-        raise RuntimeError(
-            "No historical chain snapshots found."
+    if pd.isna(target):
+        return None
+
+    timestamps = []
+
+    for snapshot in snapshots:
+
+        ts = pd.to_datetime(
+            snapshot.get("timestamp"),
+            errors="coerce"
         )
 
-    snapshots = []
+        timestamps.append(ts)
 
-    for file in files:
+    valid = [
+        (i, ts)
+        for i, ts in enumerate(timestamps)
+        if not pd.isna(ts)
+    ]
 
-        try:
+    if not valid:
+        return None
 
-            df = pd.read_csv(file)
+    return min(
+        valid,
+        key=lambda item:
+            abs(item[1] - target)
+    )[0]
 
-            if df.empty:
-                continue
 
-            # --------------------------------------------
-            # TIMESTAMP
-            # --------------------------------------------
+def snapshot_has_legs(
+    snapshot,
+    legs
+):
+    """
+    Check whether all requested strategy legs
+    have valid premiums in a snapshot.
+    """
 
-            if "timestamp" not in df.columns:
-                continue
+    if not snapshot:
+        return False
 
-            df["timestamp"] = pd.to_datetime(
-                df["timestamp"],
+    df = snapshot.get("data")
+
+    if df is None or df.empty:
+        return False
+
+    for leg in legs:
+
+        strike = float(
+            leg["strike"]
+        )
+
+        option_type = str(
+            leg["option_type"]
+        ).upper()
+
+        if option_type == "CE":
+            column = "ce_ltp"
+        elif option_type == "PE":
+            column = "pe_ltp"
+        else:
+            return False
+
+        if column not in df.columns:
+            return False
+
+        rows = df[
+            pd.to_numeric(
+                df["strike"],
                 errors="coerce"
-            )
+            ) == strike
+        ]
 
-            # --------------------------------------------
-            # STRIKE
-            # --------------------------------------------
+        if rows.empty:
+            return False
 
-            if "strike" in df.columns:
+        premium = pd.to_numeric(
+            rows[column],
+            errors="coerce"
+        ).iloc[0]
 
-                df["strike"] = pd.to_numeric(
-                    df["strike"],
-                    errors="coerce"
-                )
+        if pd.isna(premium):
+            return False
 
-            # --------------------------------------------
-            # OPTION TYPE
-            # --------------------------------------------
+    return True
 
-            if "option_type" not in df.columns:
 
-                df["option_type"] = None
+# ============================================================
+# SINGLE STRATEGY BACKTEST
+# ============================================================
 
-            df["option_type"] = (
-                df["option_type"]
-                .astype(str)
-                .str.upper()
-                .str.strip()
-            )
+def run_single_backtest(
+    expiry,
+    trade_date,
+    entry_time,
+    exit_time,
+    legs,
+):
+    """
+    Run one historical strategy trade.
 
-            # --------------------------------------------
-            # RECOVER OPTION TYPE FROM SYMBOL
-            # --------------------------------------------
+    Parameters
+    ----------
+    expiry:
+        Selected option expiry.
 
-            if "trading_symbol" in df.columns:
+    trade_date:
+        Historical trading date.
 
-                symbol = (
-                    df["trading_symbol"]
-                    .astype(str)
-                    .str.upper()
-                    .str.strip()
-                )
+    entry_time:
+        Entry timestamp.
 
-                df.loc[
-                    symbol.str.contains(" CE "),
-                    "option_type"
-                ] = "CE"
+    exit_time:
+        Exit timestamp.
 
-                df.loc[
-                    symbol.str.contains(" PE "),
-                    "option_type"
-                ] = "PE"
+    legs:
+        Strategy leg list.
+    """
 
-            # --------------------------------------------
-            # REMOVE INVALID ROWS
-            # --------------------------------------------
+    if not legs:
 
-            df = df.dropna(
-                subset=[
-                    "timestamp",
-                    "strike"
-                ]
-            )
+        raise ValueError(
+            "No strategy legs supplied."
+        )
 
-            df = df[
-                df["option_type"].isin(
-                    ["CE", "PE"]
-                )
-            ]
+    # --------------------------------------------------------
+    # Load only selected expiry/date
+    # --------------------------------------------------------
 
-            if df.empty:
-                continue
+    snapshots = load_historical_snapshots(
 
-            # --------------------------------------------
-            # SNAPSHOT
-            # --------------------------------------------
+        expiry=expiry,
 
-            chain_df = convert_historical_snapshot(
-                df
-            )
+        start_date=trade_date,
 
-            if chain_df.empty:
-                continue
-
-            snapshots.append(
-                {
-                    "timestamp":
-                        df["timestamp"].iloc[0],
-
-                    "data":
-                        chain_df
-                }
-            )
-
-        except Exception as e:
-
-            print(
-                f"Skipping {os.path.basename(file)}: {e}"
-            )
+        end_date=trade_date,
+    )
 
     if not snapshots:
 
         raise RuntimeError(
-            "No valid historical snapshots found."
+            "No historical snapshots found "
+            "for the selected expiry/date."
         )
 
-    return snapshots
+    # --------------------------------------------------------
+    # Locate requested snapshots
+    # --------------------------------------------------------
 
+    entry_index = find_snapshot_index(
+        snapshots,
+        entry_time
+    )
 
-# ============================================================
-# TEST STRATEGY
-# ============================================================
+    exit_index = find_snapshot_index(
+        snapshots,
+        exit_time
+    )
 
-def create_test_strategy():
+    if entry_index is None:
 
-    """
-    Simple short strangle.
+        raise RuntimeError(
+            "Entry snapshot could not be found."
+        )
 
-    SELL 21600 PE
-    SELL 24400 CE
+    if exit_index is None:
 
-    This is only a test strategy.
-    """
+        raise RuntimeError(
+            "Exit snapshot could not be found."
+        )
 
-    legs = [
+    if exit_index <= entry_index:
 
-        {
-            "strike": 21600,
-            "option_type": "PE",
-            "action": "SELL",
-            "quantity": 65
-        },
+        raise ValueError(
+            "Exit time must be after entry time."
+        )
 
-        {
-            "strike": 24400,
-            "option_type": "CE",
-            "action": "SELL",
-            "quantity": 65
-        }
-
+    entry_snapshot = snapshots[
+        entry_index
     ]
 
-    return legs
+    exit_snapshot = snapshots[
+        exit_index
+    ]
+
+    # --------------------------------------------------------
+    # Validate strategy availability
+    # --------------------------------------------------------
+
+    if not snapshot_has_legs(
+        entry_snapshot,
+        legs
+    ):
+
+        raise RuntimeError(
+            "One or more strategy legs "
+            "are unavailable at entry."
+        )
+
+    if not snapshot_has_legs(
+        exit_snapshot,
+        legs
+    ):
+
+        raise RuntimeError(
+            "One or more strategy legs "
+            "are unavailable at exit."
+        )
+
+    # --------------------------------------------------------
+    # Execute trade
+    # --------------------------------------------------------
+
+    trade = run_single_trade(
+
+        legs=legs,
+
+        entry_df=entry_snapshot["data"],
+
+        exit_df=exit_snapshot["data"],
+
+        entry_time=entry_snapshot["timestamp"],
+
+        exit_time=exit_snapshot["timestamp"],
+    )
+
+    # --------------------------------------------------------
+    # Performance table
+    # --------------------------------------------------------
+
+    results = run_backtest(
+        [trade]
+    )
+
+    metrics = calculate_backtest_metrics(
+        results
+    )
+
+    return {
+        "trade": trade,
+        "results": results,
+        "metrics": metrics,
+        "snapshots": snapshots,
+        "entry_index": entry_index,
+        "exit_index": exit_index,
+    }
 
 
 # ============================================================
-# MAIN BACKTEST
+# MULTI-TRADE BACKTEST
+# ============================================================
+
+def run_multi_trade_backtest(
+    snapshots,
+    legs,
+    entry_step=1,
+    holding_steps=1,
+):
+    """
+    Run repeated trades across snapshots.
+
+    Example:
+
+        entry_step=1
+        holding_steps=1
+
+    means:
+
+        0 -> 1
+        1 -> 2
+        2 -> 3
+        ...
+    """
+
+    if not snapshots:
+
+        raise ValueError(
+            "No snapshots supplied."
+        )
+
+    if not legs:
+
+        raise ValueError(
+            "No strategy legs supplied."
+        )
+
+    if entry_step < 1:
+
+        raise ValueError(
+            "entry_step must be >= 1."
+        )
+
+    if holding_steps < 1:
+
+        raise ValueError(
+            "holding_steps must be >= 1."
+        )
+
+    trades = []
+
+    entry_index = 0
+
+    while (
+        entry_index + holding_steps
+        < len(snapshots)
+    ):
+
+        exit_index = (
+            entry_index
+            + holding_steps
+        )
+
+        entry_snapshot = (
+            snapshots[entry_index]
+        )
+
+        exit_snapshot = (
+            snapshots[exit_index]
+        )
+
+        # ----------------------------------------------------
+        # Check legs
+        # ----------------------------------------------------
+
+        if not snapshot_has_legs(
+            entry_snapshot,
+            legs
+        ):
+
+            entry_index += entry_step
+            continue
+
+        if not snapshot_has_legs(
+            exit_snapshot,
+            legs
+        ):
+
+            entry_index += entry_step
+            continue
+
+        # ----------------------------------------------------
+        # Trade
+        # ----------------------------------------------------
+
+        trade = run_single_trade(
+
+            legs=legs,
+
+            entry_df=entry_snapshot["data"],
+
+            exit_df=exit_snapshot["data"],
+
+            entry_time=entry_snapshot["timestamp"],
+
+            exit_time=exit_snapshot["timestamp"],
+        )
+
+        trades.append(
+            trade
+        )
+
+        entry_index += entry_step
+
+    # --------------------------------------------------------
+    # Results
+    # --------------------------------------------------------
+
+    results = run_backtest(
+        trades
+    )
+
+    metrics = calculate_backtest_metrics(
+        results
+    )
+
+    return {
+        "trades": trades,
+        "results": results,
+        "metrics": metrics,
+    }
+
+
+# ============================================================
+# AVAILABLE SNAPSHOT INFORMATION
+# ============================================================
+
+def get_backtest_snapshot_info(
+    expiry,
+    trade_date
+):
+    """
+    Return snapshot information for the UI.
+    """
+
+    snapshots = load_historical_snapshots(
+
+        expiry=expiry,
+
+        start_date=trade_date,
+
+        end_date=trade_date,
+    )
+
+    rows = []
+
+    for index, snapshot in enumerate(
+        snapshots
+    ):
+
+        df = snapshot["data"]
+
+        spot = None
+        pcr = None
+
+        if (
+            df is not None
+            and not df.empty
+        ):
+
+            if "spot_price" in df.columns:
+
+                values = pd.to_numeric(
+                    df["spot_price"],
+                    errors="coerce"
+                ).dropna()
+
+                if not values.empty:
+                    spot = float(
+                        values.iloc[0]
+                    )
+
+            if "pcr" in df.columns:
+
+                values = pd.to_numeric(
+                    df["pcr"],
+                    errors="coerce"
+                ).dropna()
+
+                if not values.empty:
+                    pcr = float(
+                        values.iloc[0]
+                    )
+
+        rows.append(
+            {
+                "index": index,
+                "timestamp": snapshot[
+                    "timestamp"
+                ],
+                "spot_price": spot,
+                "pcr": pcr,
+                "rows": len(df),
+            }
+        )
+
+    return pd.DataFrame(
+        rows
+    )
+
+
+# ============================================================
+# TEST
 # ============================================================
 
 def main():
 
-    print("\n========================================")
-    print("STRATEGY BACKTEST RUNNER")
-    print("========================================")
-
-    # --------------------------------------------------------
-    # LOAD SNAPSHOTS
-    # --------------------------------------------------------
-
-    snapshots = load_chain_snapshots()
+    print(
+        "\n========================================"
+    )
 
     print(
-        "\nSnapshots loaded:",
+        "SQLITE BACKTEST RUNNER"
+    )
+
+    print(
+        "========================================"
+    )
+
+    # --------------------------------------------------------
+    # Use one known expiry/date for testing
+    # --------------------------------------------------------
+
+    expiry = "2026-08-18"
+
+    trade_date = "2026-08-18"
+
+    # --------------------------------------------------------
+    # Load snapshots
+    # --------------------------------------------------------
+
+    snapshots = load_historical_snapshots(
+
+        expiry=expiry,
+
+        start_date=trade_date,
+
+        end_date=trade_date,
+    )
+
+    print(
+        "\nSnapshots:",
         len(snapshots)
     )
 
     if len(snapshots) < 2:
 
         raise RuntimeError(
-            "Need at least 2 snapshots."
+            "Need at least two snapshots."
         )
 
     print(
@@ -250,217 +553,137 @@ def main():
     )
 
     # --------------------------------------------------------
-    # STRATEGY
+    # Determine ATM
     # --------------------------------------------------------
 
-    legs = create_test_strategy()
+    first_df = snapshots[0]["data"]
 
-    print("\nStrategy:")
-    print("SHORT STRANGLE")
+    spot_values = pd.to_numeric(
+        first_df["spot_price"],
+        errors="coerce"
+    ).dropna()
 
-    for leg in legs:
-
-        print(
-            f'{leg["action"]} '
-            f'{leg["strike"]} '
-            f'{leg["option_type"]} '
-            f'Qty={leg["quantity"]}'
-        )
-
-    # --------------------------------------------------------
-    # FIND VALID ENTRY
-    # --------------------------------------------------------
-
-    entry_index = None
-    exit_index = None
-
-    for i, snapshot in enumerate(
-        snapshots
-    ):
-
-        df = snapshot["data"]
-
-        required = {
-            (21600, "PE"),
-            (24400, "CE")
-        }
-
-        available = set()
-
-        for _, row in df.iterrows():
-
-            strike = row["strike"]
-
-            if pd.notna(row.get("ce_ltp")):
-
-                available.add(
-                    (float(strike), "CE")
-                )
-
-            if pd.notna(row.get("pe_ltp")):
-
-                available.add(
-                    (float(strike), "PE")
-                )
-
-        if required.issubset(
-            available
-        ):
-
-            entry_index = i
-            break
-
-    if entry_index is None:
+    if spot_values.empty:
 
         raise RuntimeError(
-            "No snapshot contains both strategy legs."
+            "Spot price unavailable."
         )
 
-    # --------------------------------------------------------
-    # EXIT
-    # --------------------------------------------------------
+    spot = float(
+        spot_values.iloc[0]
+    )
 
-    for i in range(
-        len(snapshots) - 1,
-        entry_index,
-        -1
-    ):
+    strikes = pd.to_numeric(
+        first_df["strike"],
+        errors="coerce"
+    ).dropna().unique()
 
-        df = snapshots[i]["data"]
-
-        available = set()
-
-        for _, row in df.iterrows():
-
-            strike = row["strike"]
-
-            if pd.notna(row.get("ce_ltp")):
-
-                available.add(
-                    (float(strike), "CE")
-                )
-
-            if pd.notna(row.get("pe_ltp")):
-
-                available.add(
-                    (float(strike), "PE")
-                )
-
-        if {
-            (21600, "PE"),
-            (24400, "CE")
-        }.issubset(
-            available
-        ):
-
-            exit_index = i
-            break
-
-    if exit_index is None:
-
-        raise RuntimeError(
-            "No valid exit snapshot found."
-        )
-
-    print(
-        "\nEntry:",
-        snapshots[
-            entry_index
-        ]["timestamp"]
+    atm = min(
+        strikes,
+        key=lambda x:
+            abs(x - spot)
     )
 
     print(
-        "Exit:",
-        snapshots[
-            exit_index
-        ]["timestamp"]
+        "\nSpot:",
+        spot
+    )
+
+    print(
+        "ATM:",
+        atm
     )
 
     # --------------------------------------------------------
-    # RUN TRADE
+    # Test long straddle
     # --------------------------------------------------------
 
-    trade = run_single_trade(
+    legs = [
+
+        {
+            "strike": atm,
+            "option_type": "CE",
+            "action": "BUY",
+            "quantity": 75,
+        },
+
+        {
+            "strike": atm,
+            "option_type": "PE",
+            "action": "BUY",
+            "quantity": 75,
+        },
+
+    ]
+
+    # --------------------------------------------------------
+    # First → last snapshot
+    # --------------------------------------------------------
+
+    output = run_single_backtest(
+
+        expiry=expiry,
+
+        trade_date=trade_date,
+
+        entry_time=snapshots[0]["timestamp"],
+
+        exit_time=snapshots[-1]["timestamp"],
 
         legs=legs,
-
-        entry_df=
-            snapshots[
-                entry_index
-            ]["data"],
-
-        exit_df=
-            snapshots[
-                exit_index
-            ]["data"],
-
-        entry_time=
-            snapshots[
-                entry_index
-            ]["timestamp"],
-
-        exit_time=
-            snapshots[
-                exit_index
-            ]["timestamp"]
-
     )
 
-    print("\n========================================")
-    print("TRADE RESULT")
-    print("========================================")
+    metrics = output["metrics"]
 
     print(
-        "Strategy P&L:",
-        trade["strategy_pnl"]
+        "\n========================================"
     )
 
-    for leg in trade["legs"]:
+    print(
+        "RESULT"
+    )
 
-        print(
-            leg["action"],
-            leg["strike"],
-            leg["option_type"],
-            "Entry:",
-            leg["entry_premium"],
-            "Exit:",
-            leg["exit_premium"],
-            "P&L:",
-            leg["pnl"]
+    print(
+        "========================================"
+    )
+
+    print(
+        "Total P&L:",
+        metrics.get(
+            "total_pnl",
+            0
         )
-
-    # --------------------------------------------------------
-    # PERFORMANCE TABLE
-    # --------------------------------------------------------
-
-    results = run_backtest(
-        [trade]
     )
 
-    metrics = calculate_backtest_metrics(
-        results
-    )
-
-    print("\n========================================")
-    print("BACKTEST METRICS")
-    print("========================================")
-
-    for key, value in metrics.items():
-
-        print(
-            f"{key}: {value}"
+    print(
+        "Win Rate:",
+        metrics.get(
+            "win_rate",
+            0
         )
+    )
 
-    print("\n========================================")
-    print("BACKTEST COMPLETE")
-    print("========================================")
+    print(
+        "Profit Factor:",
+        metrics.get(
+            "profit_factor",
+            0
+        )
+    )
 
+    print(
+        "Max Drawdown:",
+        metrics.get(
+            "max_drawdown",
+            0
+        )
+    )
 
-# ============================================================
-# RUN
-# ============================================================
+    print(
+        "\n========================================"
+    )
+
 
 if __name__ == "__main__":
-
     main()
     

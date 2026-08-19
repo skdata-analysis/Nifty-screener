@@ -14,6 +14,7 @@ from market_structure import calculate_market_structure
 from datetime import datetime
 from market_structure import calculate_market_structure
 from strategy_ui import render_strategy_tab
+from backtest_ui import render_backtest_page
 
 # ============================================================
 # PAGE CONFIG
@@ -1262,6 +1263,12 @@ def create_signal_table(df, atm):
 # ============================================================
 
 df = load_data(CSV_PATH)
+
+if df.empty:
+    st.error("Option-chain CSV not found.")
+    st.info("Make sure this file exists: data/nifty_option_chain.csv")
+    st.stop()
+
 # ============================================================
 # MARKET STRUCTURE ENGINE
 # ============================================================
@@ -1635,6 +1642,7 @@ tabs = st.tabs(
         "PCR",
         "SIGNALS",
         "STRATEGY",
+        "BACKTEST",
     ]
 )
 with tabs[0]:
@@ -2320,3 +2328,10 @@ st.caption(
     f"ATM: {format_integer(atm)}"
     f"{iv_warning}"
 )
+# ============================================================
+# TAB 9 — BACKTEST
+# ============================================================
+
+with tabs[8]:
+
+    render_backtest_page()
