@@ -1,14 +1,10 @@
 import os
-from textwrap import dedent
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 import altair as alt
-from nifty_chart_engine import (
-    prepare_chart_data as prepare_nifty_chart_data,
-    get_multi_timeframe_signal,
-    classify_multi_timeframe_regime,
-)
+from nifty_chart_engine import prepare_chart_data as prepare_nifty_chart_data
 from nifty_price_action import run_price_action_engine
 from nifty_pattern_engine import run_pattern_engine
 
@@ -753,370 +749,7 @@ def calculate_metrics(df):
 # ============================================================
 # CHART HELPERS
 # ============================================================
-# ============================================================
-# MULTI-TIMEFRAME REGIME PANEL
-# ============================================================
 
-def render_mtf_regime_panel():
-
-    try:
-
-        mtf = get_multi_timeframe_signal()
-
-        regime = classify_multi_timeframe_regime(mtf)
-
-    except Exception as e:
-
-        st.error(f"MTF engine error: {e}")
-        return
-
-    overall_signal = mtf.get(
-        "overall_signal",
-        "NO DATA"
-    )
-
-    overall_score = mtf.get(
-        "overall_score",
-        0
-    )
-
-    alignment = mtf.get(
-        "alignment",
-        "NO DATA"
-    )
-
-    regime_name = regime.get(
-        "regime",
-        "NO DATA"
-    )
-
-    bias = regime.get(
-        "bias",
-        "NEUTRAL"
-    )
-
-    risk = regime.get(
-        "risk",
-        "UNKNOWN"
-    )
-
-    description = regime.get(
-        "description",
-        ""
-    )
-
-    # --------------------------------------------------------
-    # SIGNAL COLOR
-    # --------------------------------------------------------
-
-    if "BUY" in overall_signal:
-
-        signal_color = "#00e59a"
-
-    elif "SELL" in overall_signal:
-
-        signal_color = "#ff5c67"
-
-    else:
-
-        signal_color = "#f1c75b"
-
-    # --------------------------------------------------------
-    # REGIME COLOR
-    # --------------------------------------------------------
-
-    if "BULLISH" in regime_name:
-
-        regime_color = "#00e59a"
-
-    elif "BEARISH" in regime_name:
-
-        regime_color = "#ff5c67"
-
-    else:
-
-        regime_color = "#f1c75b"
-
-    # --------------------------------------------------------
-    # RISK COLOR
-    # --------------------------------------------------------
-
-    if risk == "LOWER":
-
-        risk_color = "#00e59a"
-
-    elif risk == "HIGHER":
-
-        risk_color = "#ff5c67"
-
-    else:
-
-        risk_color = "#f1c75b"
-
-    # ========================================================
-    # HEADER
-    # ========================================================
-
-    st.html(
-        dedent(f"""
-        <div style="
-            background:#11151c;
-            border:1px solid #292e38;
-            border-radius:10px;
-            padding:10px 14px;
-            margin-top:6px;
-            margin-bottom:8px;
-        ">
-
-        <div style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-        ">
-
-            <div>
-                <div style="
-                    color:#8f98a8;
-                    font-size:10px;
-                    font-weight:800;
-                    letter-spacing:1px;
-                ">
-                    MULTI-TIMEFRAME MARKET REGIME
-                </div>
-
-                <div style="
-                    color:{regime_color};
-                    font-size:20px;
-                    font-weight:900;
-                    margin-top:3px;
-                ">
-                    {regime_name}
-                </div>
-
-                <div style="
-                    color:#8f98a8;
-                    font-size:11px;
-                    margin-top:2px;
-                ">
-                    {description}
-                </div>
-            </div>
-
-            <div style="
-                text-align:right;
-                min-width:130px;
-            ">
-
-                <div style="
-                    color:#8f98a8;
-                    font-size:10px;
-                    font-weight:700;
-                ">
-                    OVERALL SIGNAL
-                </div>
-
-                <div style="
-                    color:{signal_color};
-                    font-size:18px;
-                    font-weight:900;
-                ">
-                    {overall_signal}
-                </div>
-
-                <div style="
-                    color:#f5f7fa;
-                    font-size:11px;
-                ">
-                    SCORE {overall_score:+.2f}
-                </div>
-
-            </div>
-
-        </div>
-
-        </div>
-        """),
-    )
-
-    # ========================================================
-    # TIMEFRAME DATA
-    # ========================================================
-
-    results = mtf.get(
-        "timeframes",
-        {}
-    )
-
-    timeframe_order = [
-        ("1D", "HIGHER TF"),
-        ("1H", "MEDIUM TF"),
-        ("15m", "INTRADAY"),
-        ("5m", "FAST")
-    ]
-
-    cols = st.columns(
-        6,
-        gap="small"
-    )
-
-    # --------------------------------------------------------
-    # TIMEFRAME CARDS
-    # --------------------------------------------------------
-
-    for col, (tf, label) in zip(
-        cols[:4],
-        timeframe_order
-    ):
-
-        data = results.get(
-            tf,
-            {}
-        )
-
-        signal = data.get(
-            "signal",
-            "NO DATA"
-        )
-
-        score = data.get(
-            "score",
-            0
-        )
-
-        price = data.get(
-            "price"
-        )
-
-        supertrend = data.get(
-            "supertrend",
-            "NO DATA"
-        )
-
-        adx_strength = data.get(
-            "adx_strength",
-            "NO DATA"
-        )
-
-        if "BUY" in signal:
-
-            color = "#00e59a"
-
-        elif "SELL" in signal:
-
-            color = "#ff5c67"
-
-        else:
-
-            color = "#f1c75b"
-
-        price_text = (
-            "-"
-            if price is None
-            else f"{price:,.2f}"
-        )
-
-        st.html(
-            dedent(f"""
-            <div style="
-                background:#11151c;
-                border:1px solid #292e38;
-                border-radius:8px;
-                padding:8px 10px;
-                min-height:82px;
-            ">
-
-                <div style="
-                    color:#737d8d;
-                    font-size:9px;
-                    font-weight:800;
-                    letter-spacing:.7px;
-                ">
-                    {label}
-                </div>
-
-                <div style="
-                    color:#f5f7fa;
-                    font-size:11px;
-                    margin-top:2px;
-                ">
-                    {tf}
-                </div>
-
-                <div style="
-                    color:{color};
-                    font-size:15px;
-                    font-weight:900;
-                    margin-top:3px;
-                ">
-                    {signal}
-                </div>
-
-                <div style="
-                    color:#8f98a8;
-                    font-size:9px;
-                    margin-top:2px;
-                ">
-                    SCORE {score:+.1f}
-                    &nbsp; | &nbsp;
-                    ST {supertrend}
-                </div>
-
-            </div>
-            """),
-        )
-
-    # ========================================================
-    # SCORE / ALIGNMENT / RISK
-    # ========================================================
-
-    with cols[4]:
-
-        st.metric(
-            "MTF SCORE",
-            f"{overall_score:+.2f}"
-        )
-
-    with cols[5]:
-
-        st.html(
-            dedent(f"""
-            <div style="
-                background:#11151c;
-                border:1px solid #292e38;
-                border-radius:8px;
-                padding:8px 10px;
-                min-height:82px;
-            ">
-
-                <div style="
-                    color:#737d8d;
-                    font-size:9px;
-                    font-weight:800;
-                ">
-                    ALIGNMENT
-                </div>
-
-                <div style="
-                    color:{regime_color};
-                    font-size:13px;
-                    font-weight:900;
-                    margin-top:6px;
-                ">
-                    {alignment}
-                </div>
-
-                <div style="
-                    color:{risk_color};
-                    font-size:10px;
-                    font-weight:800;
-                    margin-top:5px;
-                ">
-                    RISK: {risk}
-                </div>
-
-            </div>
-            """),
-        )
 def prepare_chart_data(df, atm, range_count=10):
 
     if df.empty:
@@ -1640,345 +1273,8 @@ def create_signal_table(df, atm):
 
     return output
 
-# --------------------------------------------------------
-# MULTI-TIMEFRAME SIGNAL ENGINE
-# --------------------------------------------------------
 
-try:
-
-    mtf_result = get_multi_timeframe_signal()
-
-    mtf_regime = classify_multi_timeframe_regime(
-        mtf_result
-    )
-
-except Exception as e:
-
-    st.error(
-        f"Multi-timeframe engine error: {e}"
-    )
-
-    mtf_result = {
-        "overall_score": 0,
-        "overall_signal": "NO DATA",
-        "higher_tf": "NO DATA",
-        "medium_tf": "NO DATA",
-        "intraday_tf": "NO DATA",
-        "fast_tf": "NO DATA",
-        "alignment": "NO DATA",
-        "bullish_count": 0,
-        "bearish_count": 0,
-        "neutral_count": 0,
-    }
-
-    mtf_regime = {
-        "regime": "NO DATA",
-        "bias": "NEUTRAL",
-        "description": "No MTF data available.",
-        "risk": "UNKNOWN",
-    }
-# --------------------------------------------------------
 # ============================================================
-# TAB 1 — DASHBOARD
-# ============================================================
-# ============================================================
-# NAVIGATION
-# ============================================================
-
-tabs = st.tabs(
-    [
-        "DASHBOARD",
-        "OPTION CHAIN",
-        "OI ANALYSIS",
-        "VOLUME",
-        "IV",
-        "PCR",
-        "SIGNALS",
-        "STRATEGY",
-        "BACKTEST",
-        "HISTORICAL",
-        "NIFTY CHART",
-    ]
-)
-with tabs[0]:
-
-    # MTF MARKET REGIME PANEL
-    # --------------------------------------------------------
-
-    regime_name = mtf_regime.get(
-        "regime",
-        "NO DATA"
-    )
-
-    regime_bias = mtf_regime.get(
-        "bias",
-        "NEUTRAL"
-    )
-
-    regime_risk = mtf_regime.get(
-        "risk",
-        "UNKNOWN"
-    )
-
-    overall_signal = mtf_result.get(
-        "overall_signal",
-        "NO DATA"
-    )
-
-    overall_score = mtf_result.get(
-        "overall_score",
-        0
-    )
-
-    alignment = mtf_result.get(
-        "alignment",
-        "NO DATA"
-    )
-
-    bullish_count = mtf_result.get(
-        "bullish_count",
-        0
-    )
-
-    bearish_count = mtf_result.get(
-        "bearish_count",
-        0
-    )
-
-    neutral_count = mtf_result.get(
-        "neutral_count",
-        0
-    )
-
-    regime_color = {
-        "BULLISH": "#00e59a",
-        "SHORT-TERM BULLISH": "#00e59a",
-        "BEARISH": "#ff5c67",
-        "SHORT-TERM BEARISH": "#ff5c67",
-        "NEUTRAL": "#f1c75b",
-    }.get(
-        regime_bias,
-        "#f1c75b"
-    )
-
-    signal_color = {
-        "STRONG BUY": "#00e59a",
-        "BUY": "#00e59a",
-        "WEAK BUY": "#65d6a4",
-        "STRONG SELL": "#ff5c67",
-        "SELL": "#ff5c67",
-        "WEAK SELL": "#ff8a8a",
-        "NEUTRAL": "#f1c75b",
-    }.get(
-        overall_signal,
-        "#f1c75b"
-    )
-
-    st.html(
-        dedent(f"""
-        <div style="
-            background:#11151c;
-            border:1px solid #292e38;
-            border-radius:10px;
-            padding:12px 14px;
-            margin-bottom:10px;
-        ">
-
-            <div style="
-                color:#8f98a8;
-                font-size:11px;
-                font-weight:800;
-                letter-spacing:0.8px;
-                margin-bottom:10px;
-            ">
-                NIFTY MARKET REGIME
-            </div>
-
-            <div style="
-                display:grid;
-                grid-template-columns:
-                    1.5fr 1fr 1fr 1fr 1fr 1.4fr;
-                gap:8px;
-            ">
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        REGIME
-                    </div>
-
-                    <div style="
-                        color:{regime_color};
-                        font-size:17px;
-                        font-weight:800;
-                        margin-top:3px;
-                    ">
-                        {regime_name}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        1D
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("higher_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        1H
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("medium_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        15M
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("intraday_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        5M
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("fast_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        MTF SCORE
-                    </div>
-
-                    <div style="
-                        color:{signal_color};
-                        font-size:17px;
-                        font-weight:800;
-                        margin-top:3px;
-                    ">
-                        {overall_score:+.2f}
-                        <span style="
-                            font-size:11px;
-                            margin-left:5px;
-                        ">
-                            {overall_signal}
-                        </span>
-                    </div>
-                </div>
-
-            </div>
-
-            <div style="
-                border-top:1px solid #252a33;
-                margin-top:10px;
-                padding-top:8px;
-                display:flex;
-                justify-content:space-between;
-                color:#8f98a8;
-                font-size:11px;
-            ">
-
-                <span>
-                    ALIGNMENT:
-                    <b style="color:#f5f7fa;">
-                        {alignment}
-                    </b>
-                </span>
-
-                <span>
-                    BULL:
-                    <b style="color:#00e59a;">
-                        {bullish_count}
-                    </b>
-                    &nbsp;&nbsp;
-
-                    BEAR:
-                    <b style="color:#ff5c67;">
-                        {bearish_count}
-                    </b>
-                    &nbsp;&nbsp;
-
-                    NEUTRAL:
-                    <b style="color:#f1c75b;">
-                        {neutral_count}
-                    </b>
-                </span>
-
-                <span>
-                    BIAS:
-                    <b style="color:{regime_color};">
-                        {regime_bias}
-                    </b>
-                    &nbsp;&nbsp;|&nbsp;&nbsp;
-
-                    RISK:
-                    <b style="color:#f5f7fa;">
-                        {regime_risk}
-                    </b>
-                </span>
-
-            </div>
-
-        </div>
-        """),
-    )
-    # ============================================================
-
 # LOAD DATA
 # ============================================================
 
@@ -1995,69 +1291,67 @@ if df.empty:
 
 market_structure = calculate_market_structure(df)
 # ============================================================
-with tabs[0]:
+# MARKET STRUCTURE HEADER
+# ============================================================
 
-    # MARKET STRUCTURE HEADER
-    # ============================================================
+st.markdown("### NIFTY 50 MARKET STRUCTURE")
 
-    st.markdown("### NIFTY 50 MARKET STRUCTURE")
+col1, col2, col3, col4, col5 = st.columns(5)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+with col1:
+    st.metric(
+        "NIFTY SPOT",
+        f"{market_structure['spot']:,.2f}"
+    )
 
-    with col1:
-        st.metric(
-            "NIFTY SPOT",
-            f"{market_structure['spot']:,.2f}"
-        )
+with col2:
+    st.metric(
+        "ATM",
+        f"{market_structure['atm_strike']:,.0f}"
+    )
 
-    with col2:
-        st.metric(
-            "ATM",
-            f"{market_structure['atm_strike']:,.0f}"
-        )
+with col3:
+    st.metric(
+        "PCR",
+        f"{market_structure['overall_pcr']:.3f}"
+    )
 
-    with col3:
-        st.metric(
-            "PCR",
-            f"{market_structure['overall_pcr']:.3f}"
-        )
+with col4:
+    st.metric(
+        "CE RESISTANCE",
+        f"{market_structure['max_ce_oi_strike']:,.0f}"
+    )
 
-    with col4:
-        st.metric(
-            "CE RESISTANCE",
-            f"{market_structure['max_ce_oi_strike']:,.0f}"
-        )
+with col5:
+    st.metric(
+        "PE SUPPORT",
+        f"{market_structure['max_pe_oi_strike']:,.0f}"
+    )
+    col1, col2, col3, col4 = st.columns(4)
 
-    with col5:
-        st.metric(
-            "PE SUPPORT",
-            f"{market_structure['max_pe_oi_strike']:,.0f}"
-        )
-        col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric(
+        "MAX CE ΔOI",
+        f"{market_structure['max_ce_change_strike']:,.0f}"
+    )
 
-    with col1:
-        st.metric(
-            "MAX CE ΔOI",
-            f"{market_structure['max_ce_change_strike']:,.0f}"
-        )
+with col2:
+    st.metric(
+        "MAX PE ΔOI",
+        f"{market_structure['max_pe_change_strike']:,.0f}"
+    )
 
-    with col2:
-        st.metric(
-            "MAX PE ΔOI",
-            f"{market_structure['max_pe_change_strike']:,.0f}"
-        )
+with col3:
+    st.metric(
+        "OI IMBALANCE",
+        f"{market_structure['oi_imbalance'] * 100:.2f}%"
+    )
 
-    with col3:
-        st.metric(
-            "OI IMBALANCE",
-            f"{market_structure['oi_imbalance'] * 100:.2f}%"
-        )
-
-    with col4:
-        st.metric(
-            "MARKET BIAS",
-            market_structure["bias"]
-        )
+with col4:
+    st.metric(
+        "MARKET BIAS",
+        market_structure["bias"]
+    )
 
 if df.empty:
     st.error("Option-chain CSV not found.")
@@ -2348,7 +1642,28 @@ if refresh_seconds > 0:
                 f"Auto refresh failed: {e}"
             )
             
+# ============================================================
+# TAB 1 — DASHBOARD
+# ============================================================
+# ============================================================
+# NAVIGATION
+# ============================================================
 
+tabs = st.tabs(
+    [
+        "DASHBOARD",
+        "OPTION CHAIN",
+        "OI ANALYSIS",
+        "VOLUME",
+        "IV",
+        "PCR",
+        "SIGNALS",
+        "STRATEGY",
+        "BACKTEST",
+        "HISTORICAL",
+        "NIFTY CHART",
+    ]
+)
 with tabs[0]:
 
     # --------------------------------------------------------
@@ -2579,7 +1894,7 @@ with tabs[2]:
         )
 
     st.markdown(
-        dedent(f"""
+        f"""
         <div class="level-card">
             <span class="support">
                 SUPPORT: {format_integer(metrics["support"])}
@@ -2589,7 +1904,7 @@ with tabs[2]:
                 RESISTANCE: {format_integer(metrics["resistance"])}
             </span>
         </div>
-        """),
+        """,
         unsafe_allow_html=True
     )
 
@@ -2885,7 +2200,7 @@ with tabs[6]:
     with s1:
 
         st.markdown(
-            dedent("""
+            """
             <div style="
                 background:#11151c;
                 border:1px solid #292e38;
@@ -2901,7 +2216,7 @@ with tabs[6]:
                     {pcr_value}
                 </div>
             </div>
-            """).format(pcr_value=metrics["pcr_bias"]),
+            """.format(pcr_value=metrics["pcr_bias"]),
             unsafe_allow_html=True
         )
 
@@ -2924,7 +2239,7 @@ with tabs[6]:
         }.get(oi_signal, "#f1c75b")
 
         st.markdown(
-            dedent("""
+            """
             <div style="
                 background:#11151c;
                 border:1px solid #292e38;
@@ -2940,14 +2255,14 @@ with tabs[6]:
                     {oi_value}
                 </div>
             </div>
-            """).format(oi_color=oi_color, oi_value=oi_signal),
+            """.format(oi_color=oi_color, oi_value=oi_signal),
             unsafe_allow_html=True
         )
 
     with s3:
 
         st.markdown(
-            dedent("""
+            """
             <div style="
                 background:#11151c;
                 border:1px solid #292e38;
@@ -2966,7 +2281,7 @@ with tabs[6]:
                     Score: {score_value}
                 </div>
             </div>
-            """).format(
+            """.format(
                 market_value=bias,
                 score_value=metrics["score"]
             ),
@@ -3642,8 +2957,7 @@ else:
         "for this strike."
     )
 # ============================================================
-# ============================================================
-# TAB 11 — NIFTY CHART
+# tab 11 NIFTY CHART
 # ============================================================
 
 with tabs[10]:
@@ -3654,12 +2968,13 @@ with tabs[10]:
     )
 
     # --------------------------------------------------------
-    # CHART CONTROLS
+    # CONTROLS
     # --------------------------------------------------------
 
-    control_1, control_2, control_3, control_4 = st.columns([1.25, 0.85, 1.55, 1.25])
+    chart_c1, chart_c2 = st.columns(2)
 
-    with control_1:
+    with chart_c1:
+
         chart_interval_label = st.selectbox(
             "TIMEFRAME",
             [
@@ -3667,43 +2982,24 @@ with tabs[10]:
                 "5 MINUTE",
                 "15 MINUTE",
                 "30 MINUTE",
-                "60 MINUTE",
+                "60 MINUTE"
             ],
             index=1,
-            key="nifty_chart_interval",
+            key="nifty_chart_interval"
         )
 
-    with control_2:
+    with chart_c2:
+
         chart_days = st.selectbox(
             "HISTORY",
-            [1, 3, 5, 10],
+            [
+                1,
+                3,
+                5,
+                10
+            ],
             index=2,
-            key="nifty_chart_days",
-        )
-
-    with control_3:
-        overlay_options = [
-            "EMA 9",
-            "EMA 20",
-            "EMA 50",
-            "EMA 200",
-            "VWAP",
-            "BOLLINGER BANDS",
-            "SUPERTREND",
-        ]
-        selected_overlays = st.multiselect(
-            "OVERLAYS",
-            overlay_options,
-            default=["EMA 20", "VWAP"],
-            key="nifty_chart_overlays",
-        )
-
-    with control_4:
-        lower_indicator = st.selectbox(
-            "INDICATOR PANEL",
-            ["OFF", "RSI", "MACD", "ATR", "VOLUME"],
-            index=1,
-            key="nifty_chart_lower_indicator",
+            key="nifty_chart_days"
         )
 
     interval_map = {
@@ -3711,676 +3007,547 @@ with tabs[10]:
         "5 MINUTE": "5minute",
         "15 MINUTE": "15minute",
         "30 MINUTE": "30minute",
-        "60 MINUTE": "60minute",
+        "60 MINUTE": "60minute"
     }
-    chart_interval = interval_map.get(chart_interval_label, "5minute")
+
+    chart_interval = interval_map[
+        chart_interval_label
+    ]
 
     # --------------------------------------------------------
-    # LOAD NIFTY OHLC DATA
+    # LOAD DATA
     # --------------------------------------------------------
 
     try:
+
         chart_df = prepare_nifty_chart_data(
             interval=chart_interval,
-            days=chart_days,
+            days=chart_days
         )
+
     except Exception as e:
         st.error(f"NIFTY chart data error: {e}")
         chart_df = pd.DataFrame()
 
     # --------------------------------------------------------
-    # SAFE OHLC VALIDATION
+    # PHASE 1 PRICE ACTION ENGINE
     # --------------------------------------------------------
 
-    if not chart_df.empty:
-        chart_df = chart_df.copy()
+    try:
+        price_action = run_price_action_engine(chart_df)
+        chart_df = price_action["data"]
 
-        required_ohlc = [
-            "timestamp",
-            "open",
-            "high",
-            "low",
-            "close",
-        ]
+    except Exception as e:
+        st.error(f"Price action engine error: {e}")
 
-        missing_ohlc = [
-            col for col in required_ohlc
-            if col not in chart_df.columns
-        ]
-
-        if missing_ohlc:
-            st.error(
-                "NIFTY chart is missing required OHLC fields: "
-                + ", ".join(missing_ohlc)
-            )
-            chart_df = pd.DataFrame()
-        else:
-            chart_df["timestamp"] = pd.to_datetime(
-                chart_df["timestamp"],
-                errors="coerce",
-            )
-
-            for col in ["open", "high", "low", "close", "volume"]:
-                if col in chart_df.columns:
-                    chart_df[col] = pd.to_numeric(
-                        chart_df[col],
-                        errors="coerce",
-                    )
-
-            chart_df = chart_df.dropna(
-                subset=required_ohlc
-            )
-
-            # Reject malformed candles instead of allowing one bad
-            # historical row to distort the entire price scale.
-            valid_ohlc = (
-                (chart_df["open"] > 0)
-                & (chart_df["high"] > 0)
-                & (chart_df["low"] > 0)
-                & (chart_df["close"] > 0)
-                & (chart_df["high"] >= chart_df[["open", "close"]].max(axis=1))
-                & (chart_df["low"] <= chart_df[["open", "close"]].min(axis=1))
-                & (chart_df["high"] >= chart_df["low"])
-            )
-
-            chart_df = chart_df.loc[valid_ohlc].copy()
-            chart_df = chart_df.sort_values("timestamp")
-            chart_df = chart_df.drop_duplicates(
-                subset=["timestamp"],
-                keep="last",
-            ).reset_index(drop=True)
-
-            if "volume" in chart_df.columns:
-                chart_df["volume"] = chart_df["volume"].clip(lower=0)
-
+        price_action = {
+            "trend": "UNKNOWN",
+            "event": "NO DATA",
+            "support": np.nan,
+            "resistance": np.nan,
+            "volume_signal": "NO DATA"
+        }
     # --------------------------------------------------------
-    # PRICE ACTION ENGINE
+    # PHASE 2 CANDLESTICK PATTERN ENGINE
     # --------------------------------------------------------
 
-    if not chart_df.empty:
-        try:
-            price_action = run_price_action_engine(chart_df)
-            if isinstance(price_action, dict):
-                returned_data = price_action.get("data")
-                if isinstance(returned_data, pd.DataFrame) and not returned_data.empty:
-                    chart_df = returned_data.copy()
-            else:
-                price_action = {}
-        except Exception as e:
-            st.warning(f"Price action analysis skipped: {e}")
-            price_action = {}
-    else:
-        price_action = {}
+    try:
 
-    # --------------------------------------------------------
-    # PATTERN ENGINE
-    # --------------------------------------------------------
-
-    if not chart_df.empty:
-        try:
-            pattern_result = run_pattern_engine(chart_df)
-            if isinstance(pattern_result, dict):
-                returned_data = pattern_result.get("data")
-                if isinstance(returned_data, pd.DataFrame) and not returned_data.empty:
-                    chart_df = returned_data.copy()
-            else:
-                pattern_result = {}
-        except Exception as e:
-            st.warning(f"Pattern analysis skipped: {e}")
-            pattern_result = {}
-    else:
-        pattern_result = {}
-
-    # --------------------------------------------------------
-    # FINAL SAFETY CHECK AFTER ANALYTICS ENGINES
-    # --------------------------------------------------------
-
-    if not chart_df.empty:
-        chart_df = chart_df.copy()
-        chart_df["timestamp"] = pd.to_datetime(
-            chart_df["timestamp"],
-            errors="coerce",
+        pattern_result = run_pattern_engine(
+            chart_df
         )
-        chart_df = chart_df.dropna(
-            subset=["timestamp", "open", "high", "low", "close"]
-        )
-        chart_df = chart_df.sort_values("timestamp").reset_index(drop=True)
 
-    if chart_df.empty:
-        st.warning(
-            "No valid NIFTY historical OHLC data is available for the selected timeframe/history."
+        chart_df = pattern_result["data"]
+
+    except Exception as e:
+
+        st.error(
+            f"Pattern engine error: {e}"
         )
-    else:
+
+        pattern_result = {
+            "latest_pattern": "NO DATA",
+            "pattern_bias": "NEUTRAL",
+            "pattern_score": 0,
+            "data": chart_df
+        }
+    # --------------------------------------------------------
+    # CHART
+    # --------------------------------------------------------
+
+    if not chart_df.empty:
+
         latest = chart_df.iloc[-1]
-        price = safe_number(latest.get("close"), 0)
+
+        price = latest["close"]
 
         previous_close = (
-            safe_number(chart_df["close"].iloc[-2], price)
+            chart_df["close"].iloc[-2]
             if len(chart_df) > 1
             else price
         )
 
         change = price - previous_close
+
         change_pct = (
             (change / previous_close) * 100
             if previous_close != 0
             else 0
         )
 
-        # ----------------------------------------------------
-        # TOP PRICE CARDS
-        # ----------------------------------------------------
-
-        m1, m2, m3, m4, m5 = st.columns(5)
+        m1, m2, m3, m4 = st.columns(4)
 
         with m1:
-            st.metric("NIFTY", f"{price:,.2f}")
+
+            st.metric(
+                "NIFTY",
+                f"{price:,.2f}"
+            )
 
         with m2:
-            st.metric("CHANGE", f"{change:+,.2f}")
+
+            st.metric(
+                "CHANGE",
+                f"{change:+,.2f}"
+            )
 
         with m3:
-            st.metric("CHANGE %", f"{change_pct:+.2f}%")
+
+            st.metric(
+                "CHANGE %",
+                f"{change_pct:+.2f}%"
+            )
 
         with m4:
-            st.metric("CANDLES", f"{len(chart_df):,}")
 
-        with m5:
-            latest_signal = str(
-                latest.get("signal", "NEUTRAL")
+            st.metric(
+                "CANDLES",
+                len(chart_df)
             )
-            st.metric("SIGNAL", latest_signal)
-
         # ----------------------------------------------------
-        # MARKET INTELLIGENCE
+        # PHASE 1 MARKET INTELLIGENCE
         # ----------------------------------------------------
 
-        trend_value = price_action.get("trend", "UNKNOWN")
-        support = price_action.get("support", np.nan)
-        resistance = price_action.get("resistance", np.nan)
-        volume_value = price_action.get("volume_signal", "NO DATA")
+        st.markdown("### Market Intelligence")
 
-        adx_value = latest.get("adx", np.nan)
-        adx_strength = latest.get("adx_strength", "NO DATA")
-        adx_direction = latest.get("adx_direction", "NEUTRAL")
-        supertrend_signal = latest.get("supertrend_signal", "NEUTRAL")
-        signal_score = safe_number(
-            latest.get("signal_score", 0),
-            0,
-        )
+        pa1, pa2, pa3, pa4 = st.columns(4)
 
-        ia1, ia2, ia3, ia4, ia5 = st.columns(5)
+        with pa1:
 
-        with ia1:
-            st.metric("TREND", str(trend_value))
+            st.metric(
+                "TREND",
+                price_action["trend"]
+            )
 
-        with ia2:
+        with pa2:
+
+            support = price_action["support"]
+
             st.metric(
                 "SUPPORT",
-                "-" if pd.isna(support) else f"{float(support):,.2f}",
+                "-"
+                if pd.isna(support)
+                else f"{support:,.2f}"
             )
 
-        with ia3:
+        with pa3:
+
+            resistance = price_action["resistance"]
+
             st.metric(
                 "RESISTANCE",
-                "-" if pd.isna(resistance) else f"{float(resistance):,.2f}",
+                "-"
+                if pd.isna(resistance)
+                else f"{resistance:,.2f}"
             )
 
-        with ia4:
-            st.metric(
-                "ADX",
-                "-" if pd.isna(adx_value) else f"{float(adx_value):,.2f}",
-            )
+        with pa4:
 
-        with ia5:
             st.metric(
-                "SCORE",
-                f"{signal_score:+.1f}",
-                str(volume_value),
+                "VOLUME",
+                price_action["volume_signal"]
             )
 
         # ----------------------------------------------------
-        # PATTERN SUMMARY
+        # PRICE ACTION EVENT
         # ----------------------------------------------------
 
         pattern_name = pattern_result.get(
             "latest_pattern",
-            latest.get("PRIMARY_PATTERN", "NO DATA"),
-        ) or "NO DATA"
+            "NO DATA"
+        )
 
         pattern_bias = pattern_result.get(
             "pattern_bias",
-            "NEUTRAL",
-        ) or "NEUTRAL"
+            "NEUTRAL"
+        )
 
-        pattern_score = int(
-            safe_number(
-                pattern_result.get(
-                    "pattern_score",
-                    latest.get("PATTERN_SCORE", 0),
-                ),
-                0,
-            )
+        pattern_score = pattern_result.get(
+            "pattern_score",
+            0
         )
 
         pattern_color = {
             "BULLISH": "#00e59a",
             "BEARISH": "#ff5c67",
-            "NEUTRAL": "#f1c75b",
+            "NEUTRAL": "#f1c75b"
         }.get(
-            str(pattern_bias).upper(),
-            "#f1c75b",
+            pattern_bias,
+            "#f1c75b"
         )
 
-        st.html(
-            dedent(f"""
-            <div style="background:#11151c; border:1px solid #292e38; border-radius:10px; padding:10px 14px; margin-top:6px; margin-bottom:8px;">
-                <div style="color:#8f98a8; font-size:10px; font-weight:800; letter-spacing:0.8px;">CANDLESTICK PATTERN</div>
-                <div style="color:{pattern_color}; font-size:17px; font-weight:800; margin-top:3px;">{pattern_name}</div>
-                <div style="color:#8f98a8; font-size:11px; margin-top:3px;">Bias: <span style="color:{pattern_color}; font-weight:700;">{pattern_bias}</span> &nbsp; | &nbsp; Score: <span style="color:#f5f7fa; font-weight:700;">{pattern_score:+d}</span> &nbsp; | &nbsp; DI: <span style="color:#f5f7fa; font-weight:700;">{adx_direction}</span> &nbsp; | &nbsp; ADX: <span style="color:#f5f7fa; font-weight:700;">{adx_strength}</span> &nbsp; | &nbsp; ST: <span style="color:#f5f7fa; font-weight:700;">{supertrend_signal}</span></div>
+        # ----------------------------------------------------
+        # PATTERN SUMMARY
+        # ----------------------------------------------------
+
+        st.markdown(
+            f"""
+            <div style="background:#11151c; border:1px solid #292e38; border-radius:10px; padding:12px 16px; margin-top:8px; margin-bottom:12px;">
+            <div style="color:#8f98a8; font-size:11px; font-weight:700; letter-spacing:0.7px;">CANDLESTICK PATTERN</div>
+            <div style="color:{pattern_color}; font-size:20px; font-weight:800; margin-top:4px;">{pattern_name}</div>
+            <div style="color:#8f98a8; font-size:12px; margin-top:5px;">Bias: <span style="color:{pattern_color}; font-weight:700;">{pattern_bias}</span> &nbsp;&nbsp; | &nbsp;&nbsp; Score: <span style="color:#f5f7fa; font-weight:700;">{pattern_score:+d}</span></div>
             </div>
-            """),
+            """,
+            unsafe_allow_html=True,
         )
 
         # ----------------------------------------------------
-        # CANDLESTICK CHART
+        # CANDLESTICK + PATTERN MARKERS
         # ----------------------------------------------------
 
-        chart_data = chart_df.copy()
-
-        # Keep the chart responsive while retaining enough history
-        # for the selected timeframe.
-        if len(chart_data) > 6000:
-            chart_data = chart_data.tail(6000).reset_index(drop=True)
-
-        x_axis = alt.X(
-            "timestamp:T",
-            title="TIME",
-            axis=alt.Axis(
-                format="%d %b %H:%M",
-                labelOverlap=True,
-                grid=False,
-            ),
-        )
-
-        price_scale = alt.Scale(zero=False)
-
-        base = alt.Chart(chart_data).encode(
-            x=x_axis,
-        )
-
-        candle_color = alt.condition(
-            alt.datum.close >= alt.datum.open,
-            alt.value("#00d995"),
-            alt.value("#ff4654"),
-        )
-
-        wick = base.mark_rule(
-            strokeWidth=1,
+        candle = alt.Chart(
+            chart_df
         ).encode(
+            x=alt.X(
+                "timestamp:T",
+                title="TIME"
+            )
+        )
+
+        # ----------------------------------------------------
+        # CANDLE WICKS
+        # ----------------------------------------------------
+
+        wick = candle.mark_rule().encode(
             y=alt.Y(
                 "low:Q",
-                title="NIFTY",
-                scale=price_scale,
+                title="NIFTY"
             ),
-            y2="high:Q",
-            color=candle_color,
+            y2="high:Q"
         )
 
-        body_size = {
-            "1minute": 4,
-            "5minute": 6,
-            "15minute": 8,
-            "30minute": 10,
-            "60minute": 12,
-        }.get(chart_interval, 6)
+        # ----------------------------------------------------
+        # CANDLE BODIES
+        # ----------------------------------------------------
 
-        body = base.mark_bar(
-            size=body_size,
-        ).encode(
-            y=alt.Y(
-                "open:Q",
-                title="NIFTY",
-                scale=price_scale,
-            ),
-            y2="close:Q",
-            color=candle_color,
+        body = candle.mark_bar().encode(
+            y="open:Q",
+            y2="close:Q"
         )
 
-        layers = [wick, body]
-
         # ----------------------------------------------------
-        # OVERLAYS
+        # EMA 9
         # ----------------------------------------------------
 
-        overlay_map = {
-            "EMA 9": "ema_9",
-            "EMA 20": "ema_20",
-            "EMA 50": "ema_50",
-            "EMA 200": "ema_200",
-            "VWAP": "vwap",
-            "SUPERTREND": "supertrend",
-        }
-
-        for label in selected_overlays:
-            column = overlay_map.get(label)
-            if column is None or column not in chart_data.columns:
-                continue
-
-            overlay_df = chart_data[
-                ["timestamp", column]
-            ].copy()
-            overlay_df[column] = pd.to_numeric(
-                overlay_df[column],
-                errors="coerce",
+        ema9 = (
+            alt.Chart(chart_df)
+            .mark_line()
+            .encode(
+                x="timestamp:T",
+                y="ema_9:Q"
             )
-            overlay_df = overlay_df.dropna(
-                subset=[column]
-            )
-
-            if overlay_df.empty:
-                continue
-
-            line = alt.Chart(overlay_df).mark_line(
-                strokeWidth=1.5,
-            ).encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="TIME",
-                    axis=alt.Axis(
-                        format="%d %b %H:%M",
-                        labelOverlap=True,
-                        grid=False,
-                    ),
-                ),
-                y=alt.Y(
-                    f"{column}:Q",
-                    title="NIFTY",
-                    scale=price_scale,
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Time",
-                    ),
-                    alt.Tooltip(
-                        f"{column}:Q",
-                        title=label,
-                        format=",.2f",
-                    ),
-                ],
-            )
-            layers.append(line)
-
-        if "BOLLINGER BANDS" in selected_overlays:
-            bb_df = chart_data[
-                [
-                    "timestamp",
-                    "bb_upper",
-                    "bb_middle",
-                    "bb_lower",
-                ]
-            ].copy()
-
-            for col in ["bb_upper", "bb_middle", "bb_lower"]:
-                bb_df[col] = pd.to_numeric(
-                    bb_df[col],
-                    errors="coerce",
-                )
-
-            bb_df = bb_df.dropna(
-                subset=[
-                    "bb_upper",
-                    "bb_middle",
-                    "bb_lower",
-                ],
-                how="all",
-            )
-
-            if not bb_df.empty:
-                for column, label in [
-                    ("bb_upper", "BB Upper"),
-                    ("bb_middle", "BB Middle"),
-                    ("bb_lower", "BB Lower"),
-                ]:
-                    line = alt.Chart(bb_df).mark_line(
-                        strokeWidth=1,
-                        strokeDash=[4, 3] if column != "bb_middle" else [1, 0],
-                    ).encode(
-                        x=alt.X(
-                            "timestamp:T",
-                            title="TIME",
-                            axis=alt.Axis(
-                                format="%d %b %H:%M",
-                                labelOverlap=True,
-                                grid=False,
-                            ),
-                        ),
-                        y=alt.Y(
-                            f"{column}:Q",
-                            title="NIFTY",
-                            scale=price_scale,
-                        ),
-                        tooltip=[
-                            alt.Tooltip(
-                                "timestamp:T",
-                                title="Time",
-                            ),
-                            alt.Tooltip(
-                                f"{column}:Q",
-                                title=label,
-                                format=",.2f",
-                            ),
-                        ],
-                    )
-                    layers.append(line)
+        )
 
         # ----------------------------------------------------
+        # EMA 20
+        # ----------------------------------------------------
+
+        ema20 = (
+            alt.Chart(chart_df)
+            .mark_line()
+            .encode(
+                x="timestamp:T",
+                y="ema_20:Q"
+            )
+        )
+
+        # ----------------------------------------------------
+        # EMA 50
+        # ----------------------------------------------------
+
+        ema50 = (
+            alt.Chart(chart_df)
+            .mark_line()
+            .encode(
+                x="timestamp:T",
+                y="ema_50:Q"
+            )
+        )
+
+        # ====================================================
         # PATTERN MARKERS
-        # ----------------------------------------------------
+        # ====================================================
 
         marker_columns = [
             "timestamp",
             "high",
             "low",
-            "atr",
             "PRIMARY_PATTERN",
             "PATTERN_BIAS",
-            "PATTERN_SCORE",
+            "PATTERN_SCORE"
         ]
 
         available_marker_columns = [
-            col for col in marker_columns
-            if col in chart_data.columns
+            col
+            for col in marker_columns
+            if col in chart_df.columns
         ]
 
-        pattern_markers = chart_data[
+        pattern_markers = chart_df[
             available_marker_columns
         ].copy()
 
+        # ----------------------------------------------------
+        # Only show actual detected patterns
+        # ----------------------------------------------------
+
         if "PRIMARY_PATTERN" in pattern_markers.columns:
+
             pattern_markers = pattern_markers[
-                pattern_markers["PRIMARY_PATTERN"].notna()
-                & (pattern_markers["PRIMARY_PATTERN"].astype(str) != "NONE")
-                & (pattern_markers["PRIMARY_PATTERN"].astype(str) != "")
+                pattern_markers["PRIMARY_PATTERN"]
+                .notna()
             ]
 
-        pattern_markers = pattern_markers.tail(60).copy()
+            pattern_markers = pattern_markers[
+                pattern_markers["PRIMARY_PATTERN"]
+                != "NONE"
+            ]
+
+        # ----------------------------------------------------
+        # Keep chart visually clean
+        # Show recent pattern signals only
+        # ----------------------------------------------------
+
+        pattern_markers = pattern_markers.tail(
+            80
+        ).copy()
+
+        # ----------------------------------------------------
+        # Marker position
+        # ----------------------------------------------------
 
         if not pattern_markers.empty:
-            if "atr" not in pattern_markers.columns:
-                pattern_markers["atr"] = 10.0
 
-            pattern_markers["atr"] = pd.to_numeric(
-                pattern_markers["atr"],
-                errors="coerce",
-            ).fillna(10.0)
+            if "atr" in chart_df.columns:
 
-            if "PATTERN_BIAS" not in pattern_markers.columns:
-                pattern_markers["PATTERN_BIAS"] = "NEUTRAL"
+                atr_values = chart_df[
+                    [
+                        "timestamp",
+                        "atr"
+                    ]
+                ].copy()
 
-            if "PATTERN_SCORE" not in pattern_markers.columns:
-                pattern_markers["PATTERN_SCORE"] = 0
-
-            bullish_markers_df = pattern_markers[
-                pattern_markers["PATTERN_BIAS"].astype(str).str.upper() == "BULLISH"
-            ].copy()
-            bearish_markers_df = pattern_markers[
-                pattern_markers["PATTERN_BIAS"].astype(str).str.upper() == "BEARISH"
-            ].copy()
-
-            if not bullish_markers_df.empty:
-                bullish_markers_df["marker_price"] = (
-                    bullish_markers_df["low"]
-                    - bullish_markers_df["atr"] * 0.35
+                pattern_markers = pattern_markers.merge(
+                    atr_values,
+                    on="timestamp",
+                    how="left"
                 )
-                layers.append(
-                    alt.Chart(bullish_markers_df).mark_point(
-                        shape="triangle-up",
-                        size=90,
-                        filled=True,
-                    ).encode(
-                        x="timestamp:T",
-                        y=alt.Y(
-                            "marker_price:Q",
-                            scale=price_scale,
-                        ),
-                        tooltip=[
-                            alt.Tooltip("timestamp:T", title="Time"),
-                            alt.Tooltip("PRIMARY_PATTERN:N", title="Pattern"),
-                            alt.Tooltip("PATTERN_BIAS:N", title="Bias"),
-                            alt.Tooltip("PATTERN_SCORE:Q", title="Score"),
-                        ],
+
+                pattern_markers["atr"] = (
+                    pd.to_numeric(
+                        pattern_markers["atr"],
+                        errors="coerce"
                     )
+                    .fillna(10)
                 )
 
-            if not bearish_markers_df.empty:
-                bearish_markers_df["marker_price"] = (
-                    bearish_markers_df["high"]
-                    + bearish_markers_df["atr"] * 0.35
+            else:
+
+                pattern_markers["atr"] = 10
+
+            # ------------------------------------------------
+            # Bullish markers
+            # ------------------------------------------------
+
+            bullish_marker_data = pattern_markers[
+                pattern_markers["PATTERN_BIAS"]
+                == "BULLISH"
+            ].copy()
+
+            bullish_marker_data["marker_price"] = (
+                bullish_marker_data["low"]
+                - bullish_marker_data["atr"] * 0.35
+            )
+
+            # ------------------------------------------------
+            # Bearish markers
+            # ------------------------------------------------
+
+            bearish_marker_data = pattern_markers[
+                pattern_markers["PATTERN_BIAS"]
+                == "BEARISH"
+            ].copy()
+
+            bearish_marker_data["marker_price"] = (
+                bearish_marker_data["high"]
+                + bearish_marker_data["atr"] * 0.35
+            )
+
+            # ------------------------------------------------
+            # Bullish chart marker
+            # ------------------------------------------------
+
+            bullish_markers = (
+                alt.Chart(
+                    bullish_marker_data
                 )
-                layers.append(
-                    alt.Chart(bearish_markers_df).mark_point(
-                        shape="triangle-down",
-                        size=90,
-                        filled=True,
-                    ).encode(
-                        x="timestamp:T",
-                        y=alt.Y(
-                            "marker_price:Q",
-                            scale=price_scale,
+                .mark_point(
+                    shape="triangle-up",
+                    size=110,
+                    filled=True
+                )
+                .encode(
+                    x="timestamp:T",
+                    y=alt.Y(
+                        "marker_price:Q"
+                    ),
+                    tooltip=[
+                        alt.Tooltip(
+                            "timestamp:T",
+                            title="Time"
                         ),
-                        tooltip=[
-                            alt.Tooltip("timestamp:T", title="Time"),
-                            alt.Tooltip("PRIMARY_PATTERN:N", title="Pattern"),
-                            alt.Tooltip("PATTERN_BIAS:N", title="Bias"),
-                            alt.Tooltip("PATTERN_SCORE:Q", title="Score"),
-                        ],
-                    )
+                        alt.Tooltip(
+                            "PRIMARY_PATTERN:N",
+                            title="Pattern"
+                        ),
+                        alt.Tooltip(
+                            "PATTERN_BIAS:N",
+                            title="Bias"
+                        ),
+                        alt.Tooltip(
+                            "PATTERN_SCORE:Q",
+                            title="Score"
+                        )
+                    ]
                 )
+            )
 
-        final_chart = alt.layer(*layers).properties(
-            height=440,
-        ).configure_view(
-            stroke=None,
+            # ------------------------------------------------
+            # Bearish chart marker
+            # ------------------------------------------------
+
+            bearish_markers = (
+                alt.Chart(
+                    bearish_marker_data
+                )
+                .mark_point(
+                    shape="triangle-down",
+                    size=110,
+                    filled=True
+                )
+                .encode(
+                    x="timestamp:T",
+                    y=alt.Y(
+                        "marker_price:Q"
+                    ),
+                    tooltip=[
+                        alt.Tooltip(
+                            "timestamp:T",
+                            title="Time"
+                        ),
+                        alt.Tooltip(
+                            "PRIMARY_PATTERN:N",
+                            title="Pattern"
+                        ),
+                        alt.Tooltip(
+                            "PATTERN_BIAS:N",
+                            title="Bias"
+                        ),
+                        alt.Tooltip(
+                            "PATTERN_SCORE:Q",
+                            title="Score"
+                        )
+                    ]
+                )
+            )
+
+        else:
+
+            bullish_markers = alt.Chart(
+                pd.DataFrame(
+                    columns=[
+                        "timestamp",
+                        "marker_price"
+                    ]
+                )
+            ).mark_point()
+
+            bearish_markers = alt.Chart(
+                pd.DataFrame(
+                    columns=[
+                        "timestamp",
+                        "marker_price"
+                    ]
+                )
+            ).mark_point()
+
+        # ====================================================
+        # FINAL CHART
+        # ====================================================
+
+        final_chart = (
+            wick
+            + body
+            + ema9
+            + ema20
+            + ema50
+            + bullish_markers
+            + bearish_markers
+        ).properties(
+            height=500
         )
 
         st.altair_chart(
-            final_chart.interactive(),
-            width="stretch",
+            final_chart,
+            width="stretch"
         )
-
+        
         # ----------------------------------------------------
-        # LOWER INDICATOR PANEL
+        # INDICATOR CARDS
         # ----------------------------------------------------
 
-        if lower_indicator != "OFF":
-            indicator_column_map = {
-                "RSI": "rsi",
-                "MACD": "macd",
-                "ATR": "atr",
-                "VOLUME": "volume",
-            }
+        i1, i2, i3, i4 = st.columns(4)
 
-            indicator_column = indicator_column_map.get(
-                lower_indicator
+        with i1:
+
+            st.metric(
+                "EMA 9",
+                f"{latest['ema_9']:,.2f}"
             )
 
-            if indicator_column in chart_data.columns:
-                indicator_df = chart_data[
-                    ["timestamp", indicator_column]
-                ].copy()
-                indicator_df[indicator_column] = pd.to_numeric(
-                    indicator_df[indicator_column],
-                    errors="coerce",
-                )
-                indicator_df = indicator_df.dropna(
-                    subset=[indicator_column]
-                )
+        with i2:
 
-                if not indicator_df.empty:
-                    indicator_chart = alt.Chart(
-                        indicator_df
-                    ).mark_line(
-                        strokeWidth=1.5,
-                    ).encode(
-                        x=alt.X(
-                            "timestamp:T",
-                            title="TIME",
-                            axis=alt.Axis(
-                                format="%d %b %H:%M",
-                                labelOverlap=True,
-                                grid=False,
-                            ),
-                        ),
-                        y=alt.Y(
-                            f"{indicator_column}:Q",
-                            title=lower_indicator,
-                        ),
-                        tooltip=[
-                            alt.Tooltip(
-                                "timestamp:T",
-                                title="Time",
-                            ),
-                            alt.Tooltip(
-                                f"{indicator_column}:Q",
-                                title=lower_indicator,
-                                format=",.2f",
-                            ),
-                        ],
-                    ).properties(
-                        height=170,
-                    ).configure_view(
-                        stroke=None,
-                    )
+            st.metric(
+                "EMA 20",
+                f"{latest['ema_20']:,.2f}"
+            )
 
-                    st.markdown(
-                        f"### {lower_indicator}",
-                    )
-                    st.altair_chart(
-                        indicator_chart.interactive(),
-                        width="stretch",
-                    )
+        with i3:
 
-        # ----------------------------------------------------
-        # FINAL INDICATOR SNAPSHOT
-        # ----------------------------------------------------
+            st.metric(
+                "ATR",
+                f"{latest['atr']:,.2f}"
+            )
 
-        snap_cols = [
-            ("EMA 9", "ema_9"),
-            ("EMA 20", "ema_20"),
-            ("EMA 50", "ema_50"),
-            ("EMA 200", "ema_200"),
-            ("RSI", "rsi"),
-        ]
+        with i4:
 
-        snapshot_columns = st.columns(len(snap_cols))
+            st.metric(
+                "RSI",
+                f"{latest['rsi']:,.2f}"
+            )
 
-        for col_ui, (label, column) in zip(snapshot_columns, snap_cols):
-            with col_ui:
-                value = latest.get(column, np.nan)
-                st.metric(
-                    label,
-                    "-" if pd.isna(value) else f"{float(value):,.2f}",
-                )
+    else:
 
+        st.warning(
+            "No NIFTY historical data available."
+        )

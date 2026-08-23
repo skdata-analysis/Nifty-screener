@@ -1,17 +1,8 @@
 import os
-from textwrap import dedent
 import numpy as np
 import pandas as pd
 import streamlit as st
 import altair as alt
-from nifty_chart_engine import (
-    prepare_chart_data as prepare_nifty_chart_data,
-    get_multi_timeframe_signal,
-    classify_multi_timeframe_regime,
-)
-from nifty_price_action import run_price_action_engine
-from nifty_pattern_engine import run_pattern_engine
-
 from live_optionchain_data import (
     update_option_chain,
     get_available_expiries
@@ -30,11 +21,18 @@ from historical_analytics import (
 from streamlit_autorefresh import st_autorefresh
 from market_structure import calculate_market_structure
 from datetime import datetime
-
+from market_structure import calculate_market_structure
 from strategy_ui import render_strategy_tab
 from backtest_ui import render_backtest_page
 
-
+from historical_analytics import (
+    load_history,
+    get_strike_history,
+    get_greek_history,
+    get_price_history,
+    get_oi_history,
+    get_atm_strike,
+)
 
 # ============================================================
 # PAGE CONFIG
@@ -753,370 +751,7 @@ def calculate_metrics(df):
 # ============================================================
 # CHART HELPERS
 # ============================================================
-# ============================================================
-# MULTI-TIMEFRAME REGIME PANEL
-# ============================================================
 
-def render_mtf_regime_panel():
-
-    try:
-
-        mtf = get_multi_timeframe_signal()
-
-        regime = classify_multi_timeframe_regime(mtf)
-
-    except Exception as e:
-
-        st.error(f"MTF engine error: {e}")
-        return
-
-    overall_signal = mtf.get(
-        "overall_signal",
-        "NO DATA"
-    )
-
-    overall_score = mtf.get(
-        "overall_score",
-        0
-    )
-
-    alignment = mtf.get(
-        "alignment",
-        "NO DATA"
-    )
-
-    regime_name = regime.get(
-        "regime",
-        "NO DATA"
-    )
-
-    bias = regime.get(
-        "bias",
-        "NEUTRAL"
-    )
-
-    risk = regime.get(
-        "risk",
-        "UNKNOWN"
-    )
-
-    description = regime.get(
-        "description",
-        ""
-    )
-
-    # --------------------------------------------------------
-    # SIGNAL COLOR
-    # --------------------------------------------------------
-
-    if "BUY" in overall_signal:
-
-        signal_color = "#00e59a"
-
-    elif "SELL" in overall_signal:
-
-        signal_color = "#ff5c67"
-
-    else:
-
-        signal_color = "#f1c75b"
-
-    # --------------------------------------------------------
-    # REGIME COLOR
-    # --------------------------------------------------------
-
-    if "BULLISH" in regime_name:
-
-        regime_color = "#00e59a"
-
-    elif "BEARISH" in regime_name:
-
-        regime_color = "#ff5c67"
-
-    else:
-
-        regime_color = "#f1c75b"
-
-    # --------------------------------------------------------
-    # RISK COLOR
-    # --------------------------------------------------------
-
-    if risk == "LOWER":
-
-        risk_color = "#00e59a"
-
-    elif risk == "HIGHER":
-
-        risk_color = "#ff5c67"
-
-    else:
-
-        risk_color = "#f1c75b"
-
-    # ========================================================
-    # HEADER
-    # ========================================================
-
-    st.html(
-        dedent(f"""
-        <div style="
-            background:#11151c;
-            border:1px solid #292e38;
-            border-radius:10px;
-            padding:10px 14px;
-            margin-top:6px;
-            margin-bottom:8px;
-        ">
-
-        <div style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-        ">
-
-            <div>
-                <div style="
-                    color:#8f98a8;
-                    font-size:10px;
-                    font-weight:800;
-                    letter-spacing:1px;
-                ">
-                    MULTI-TIMEFRAME MARKET REGIME
-                </div>
-
-                <div style="
-                    color:{regime_color};
-                    font-size:20px;
-                    font-weight:900;
-                    margin-top:3px;
-                ">
-                    {regime_name}
-                </div>
-
-                <div style="
-                    color:#8f98a8;
-                    font-size:11px;
-                    margin-top:2px;
-                ">
-                    {description}
-                </div>
-            </div>
-
-            <div style="
-                text-align:right;
-                min-width:130px;
-            ">
-
-                <div style="
-                    color:#8f98a8;
-                    font-size:10px;
-                    font-weight:700;
-                ">
-                    OVERALL SIGNAL
-                </div>
-
-                <div style="
-                    color:{signal_color};
-                    font-size:18px;
-                    font-weight:900;
-                ">
-                    {overall_signal}
-                </div>
-
-                <div style="
-                    color:#f5f7fa;
-                    font-size:11px;
-                ">
-                    SCORE {overall_score:+.2f}
-                </div>
-
-            </div>
-
-        </div>
-
-        </div>
-        """),
-    )
-
-    # ========================================================
-    # TIMEFRAME DATA
-    # ========================================================
-
-    results = mtf.get(
-        "timeframes",
-        {}
-    )
-
-    timeframe_order = [
-        ("1D", "HIGHER TF"),
-        ("1H", "MEDIUM TF"),
-        ("15m", "INTRADAY"),
-        ("5m", "FAST")
-    ]
-
-    cols = st.columns(
-        6,
-        gap="small"
-    )
-
-    # --------------------------------------------------------
-    # TIMEFRAME CARDS
-    # --------------------------------------------------------
-
-    for col, (tf, label) in zip(
-        cols[:4],
-        timeframe_order
-    ):
-
-        data = results.get(
-            tf,
-            {}
-        )
-
-        signal = data.get(
-            "signal",
-            "NO DATA"
-        )
-
-        score = data.get(
-            "score",
-            0
-        )
-
-        price = data.get(
-            "price"
-        )
-
-        supertrend = data.get(
-            "supertrend",
-            "NO DATA"
-        )
-
-        adx_strength = data.get(
-            "adx_strength",
-            "NO DATA"
-        )
-
-        if "BUY" in signal:
-
-            color = "#00e59a"
-
-        elif "SELL" in signal:
-
-            color = "#ff5c67"
-
-        else:
-
-            color = "#f1c75b"
-
-        price_text = (
-            "-"
-            if price is None
-            else f"{price:,.2f}"
-        )
-
-        st.html(
-            dedent(f"""
-            <div style="
-                background:#11151c;
-                border:1px solid #292e38;
-                border-radius:8px;
-                padding:8px 10px;
-                min-height:82px;
-            ">
-
-                <div style="
-                    color:#737d8d;
-                    font-size:9px;
-                    font-weight:800;
-                    letter-spacing:.7px;
-                ">
-                    {label}
-                </div>
-
-                <div style="
-                    color:#f5f7fa;
-                    font-size:11px;
-                    margin-top:2px;
-                ">
-                    {tf}
-                </div>
-
-                <div style="
-                    color:{color};
-                    font-size:15px;
-                    font-weight:900;
-                    margin-top:3px;
-                ">
-                    {signal}
-                </div>
-
-                <div style="
-                    color:#8f98a8;
-                    font-size:9px;
-                    margin-top:2px;
-                ">
-                    SCORE {score:+.1f}
-                    &nbsp; | &nbsp;
-                    ST {supertrend}
-                </div>
-
-            </div>
-            """),
-        )
-
-    # ========================================================
-    # SCORE / ALIGNMENT / RISK
-    # ========================================================
-
-    with cols[4]:
-
-        st.metric(
-            "MTF SCORE",
-            f"{overall_score:+.2f}"
-        )
-
-    with cols[5]:
-
-        st.html(
-            dedent(f"""
-            <div style="
-                background:#11151c;
-                border:1px solid #292e38;
-                border-radius:8px;
-                padding:8px 10px;
-                min-height:82px;
-            ">
-
-                <div style="
-                    color:#737d8d;
-                    font-size:9px;
-                    font-weight:800;
-                ">
-                    ALIGNMENT
-                </div>
-
-                <div style="
-                    color:{regime_color};
-                    font-size:13px;
-                    font-weight:900;
-                    margin-top:6px;
-                ">
-                    {alignment}
-                </div>
-
-                <div style="
-                    color:{risk_color};
-                    font-size:10px;
-                    font-weight:800;
-                    margin-top:5px;
-                ">
-                    RISK: {risk}
-                </div>
-
-            </div>
-            """),
-        )
 def prepare_chart_data(df, atm, range_count=10):
 
     if df.empty:
@@ -1640,345 +1275,8 @@ def create_signal_table(df, atm):
 
     return output
 
-# --------------------------------------------------------
-# MULTI-TIMEFRAME SIGNAL ENGINE
-# --------------------------------------------------------
 
-try:
-
-    mtf_result = get_multi_timeframe_signal()
-
-    mtf_regime = classify_multi_timeframe_regime(
-        mtf_result
-    )
-
-except Exception as e:
-
-    st.error(
-        f"Multi-timeframe engine error: {e}"
-    )
-
-    mtf_result = {
-        "overall_score": 0,
-        "overall_signal": "NO DATA",
-        "higher_tf": "NO DATA",
-        "medium_tf": "NO DATA",
-        "intraday_tf": "NO DATA",
-        "fast_tf": "NO DATA",
-        "alignment": "NO DATA",
-        "bullish_count": 0,
-        "bearish_count": 0,
-        "neutral_count": 0,
-    }
-
-    mtf_regime = {
-        "regime": "NO DATA",
-        "bias": "NEUTRAL",
-        "description": "No MTF data available.",
-        "risk": "UNKNOWN",
-    }
-# --------------------------------------------------------
 # ============================================================
-# TAB 1 — DASHBOARD
-# ============================================================
-# ============================================================
-# NAVIGATION
-# ============================================================
-
-tabs = st.tabs(
-    [
-        "DASHBOARD",
-        "OPTION CHAIN",
-        "OI ANALYSIS",
-        "VOLUME",
-        "IV",
-        "PCR",
-        "SIGNALS",
-        "STRATEGY",
-        "BACKTEST",
-        "HISTORICAL",
-        "NIFTY CHART",
-    ]
-)
-with tabs[0]:
-
-    # MTF MARKET REGIME PANEL
-    # --------------------------------------------------------
-
-    regime_name = mtf_regime.get(
-        "regime",
-        "NO DATA"
-    )
-
-    regime_bias = mtf_regime.get(
-        "bias",
-        "NEUTRAL"
-    )
-
-    regime_risk = mtf_regime.get(
-        "risk",
-        "UNKNOWN"
-    )
-
-    overall_signal = mtf_result.get(
-        "overall_signal",
-        "NO DATA"
-    )
-
-    overall_score = mtf_result.get(
-        "overall_score",
-        0
-    )
-
-    alignment = mtf_result.get(
-        "alignment",
-        "NO DATA"
-    )
-
-    bullish_count = mtf_result.get(
-        "bullish_count",
-        0
-    )
-
-    bearish_count = mtf_result.get(
-        "bearish_count",
-        0
-    )
-
-    neutral_count = mtf_result.get(
-        "neutral_count",
-        0
-    )
-
-    regime_color = {
-        "BULLISH": "#00e59a",
-        "SHORT-TERM BULLISH": "#00e59a",
-        "BEARISH": "#ff5c67",
-        "SHORT-TERM BEARISH": "#ff5c67",
-        "NEUTRAL": "#f1c75b",
-    }.get(
-        regime_bias,
-        "#f1c75b"
-    )
-
-    signal_color = {
-        "STRONG BUY": "#00e59a",
-        "BUY": "#00e59a",
-        "WEAK BUY": "#65d6a4",
-        "STRONG SELL": "#ff5c67",
-        "SELL": "#ff5c67",
-        "WEAK SELL": "#ff8a8a",
-        "NEUTRAL": "#f1c75b",
-    }.get(
-        overall_signal,
-        "#f1c75b"
-    )
-
-    st.html(
-        dedent(f"""
-        <div style="
-            background:#11151c;
-            border:1px solid #292e38;
-            border-radius:10px;
-            padding:12px 14px;
-            margin-bottom:10px;
-        ">
-
-            <div style="
-                color:#8f98a8;
-                font-size:11px;
-                font-weight:800;
-                letter-spacing:0.8px;
-                margin-bottom:10px;
-            ">
-                NIFTY MARKET REGIME
-            </div>
-
-            <div style="
-                display:grid;
-                grid-template-columns:
-                    1.5fr 1fr 1fr 1fr 1fr 1.4fr;
-                gap:8px;
-            ">
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        REGIME
-                    </div>
-
-                    <div style="
-                        color:{regime_color};
-                        font-size:17px;
-                        font-weight:800;
-                        margin-top:3px;
-                    ">
-                        {regime_name}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        1D
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("higher_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        1H
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("medium_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        15M
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("intraday_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        5M
-                    </div>
-
-                    <div style="
-                        color:#f5f7fa;
-                        font-size:14px;
-                        font-weight:800;
-                        margin-top:5px;
-                    ">
-                        {mtf_result.get("fast_tf", "NO DATA")}
-                    </div>
-                </div>
-
-                <div>
-                    <div style="
-                        color:#737c8c;
-                        font-size:10px;
-                        font-weight:700;
-                    ">
-                        MTF SCORE
-                    </div>
-
-                    <div style="
-                        color:{signal_color};
-                        font-size:17px;
-                        font-weight:800;
-                        margin-top:3px;
-                    ">
-                        {overall_score:+.2f}
-                        <span style="
-                            font-size:11px;
-                            margin-left:5px;
-                        ">
-                            {overall_signal}
-                        </span>
-                    </div>
-                </div>
-
-            </div>
-
-            <div style="
-                border-top:1px solid #252a33;
-                margin-top:10px;
-                padding-top:8px;
-                display:flex;
-                justify-content:space-between;
-                color:#8f98a8;
-                font-size:11px;
-            ">
-
-                <span>
-                    ALIGNMENT:
-                    <b style="color:#f5f7fa;">
-                        {alignment}
-                    </b>
-                </span>
-
-                <span>
-                    BULL:
-                    <b style="color:#00e59a;">
-                        {bullish_count}
-                    </b>
-                    &nbsp;&nbsp;
-
-                    BEAR:
-                    <b style="color:#ff5c67;">
-                        {bearish_count}
-                    </b>
-                    &nbsp;&nbsp;
-
-                    NEUTRAL:
-                    <b style="color:#f1c75b;">
-                        {neutral_count}
-                    </b>
-                </span>
-
-                <span>
-                    BIAS:
-                    <b style="color:{regime_color};">
-                        {regime_bias}
-                    </b>
-                    &nbsp;&nbsp;|&nbsp;&nbsp;
-
-                    RISK:
-                    <b style="color:#f5f7fa;">
-                        {regime_risk}
-                    </b>
-                </span>
-
-            </div>
-
-        </div>
-        """),
-    )
-    # ============================================================
-
 # LOAD DATA
 # ============================================================
 
@@ -1995,69 +1293,67 @@ if df.empty:
 
 market_structure = calculate_market_structure(df)
 # ============================================================
-with tabs[0]:
+# MARKET STRUCTURE HEADER
+# ============================================================
 
-    # MARKET STRUCTURE HEADER
-    # ============================================================
+st.markdown("### NIFTY 50 MARKET STRUCTURE")
 
-    st.markdown("### NIFTY 50 MARKET STRUCTURE")
+col1, col2, col3, col4, col5 = st.columns(5)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+with col1:
+    st.metric(
+        "NIFTY SPOT",
+        f"{market_structure['spot']:,.2f}"
+    )
 
-    with col1:
-        st.metric(
-            "NIFTY SPOT",
-            f"{market_structure['spot']:,.2f}"
-        )
+with col2:
+    st.metric(
+        "ATM",
+        f"{market_structure['atm_strike']:,.0f}"
+    )
 
-    with col2:
-        st.metric(
-            "ATM",
-            f"{market_structure['atm_strike']:,.0f}"
-        )
+with col3:
+    st.metric(
+        "PCR",
+        f"{market_structure['overall_pcr']:.3f}"
+    )
 
-    with col3:
-        st.metric(
-            "PCR",
-            f"{market_structure['overall_pcr']:.3f}"
-        )
+with col4:
+    st.metric(
+        "CE RESISTANCE",
+        f"{market_structure['max_ce_oi_strike']:,.0f}"
+    )
 
-    with col4:
-        st.metric(
-            "CE RESISTANCE",
-            f"{market_structure['max_ce_oi_strike']:,.0f}"
-        )
+with col5:
+    st.metric(
+        "PE SUPPORT",
+        f"{market_structure['max_pe_oi_strike']:,.0f}"
+    )
+    col1, col2, col3, col4 = st.columns(4)
 
-    with col5:
-        st.metric(
-            "PE SUPPORT",
-            f"{market_structure['max_pe_oi_strike']:,.0f}"
-        )
-        col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric(
+        "MAX CE ΔOI",
+        f"{market_structure['max_ce_change_strike']:,.0f}"
+    )
 
-    with col1:
-        st.metric(
-            "MAX CE ΔOI",
-            f"{market_structure['max_ce_change_strike']:,.0f}"
-        )
+with col2:
+    st.metric(
+        "MAX PE ΔOI",
+        f"{market_structure['max_pe_change_strike']:,.0f}"
+    )
 
-    with col2:
-        st.metric(
-            "MAX PE ΔOI",
-            f"{market_structure['max_pe_change_strike']:,.0f}"
-        )
+with col3:
+    st.metric(
+        "OI IMBALANCE",
+        f"{market_structure['oi_imbalance'] * 100:.2f}%"
+    )
 
-    with col3:
-        st.metric(
-            "OI IMBALANCE",
-            f"{market_structure['oi_imbalance'] * 100:.2f}%"
-        )
-
-    with col4:
-        st.metric(
-            "MARKET BIAS",
-            market_structure["bias"]
-        )
+with col4:
+    st.metric(
+        "MARKET BIAS",
+        market_structure["bias"]
+    )
 
 if df.empty:
     st.error("Option-chain CSV not found.")
@@ -2072,7 +1368,6 @@ if not metrics:
 
 spot = metrics["spot"]
 atm = metrics["atm"]
-
 last_updated = datetime.now().strftime("%H:%M:%S")
 
 
@@ -2183,17 +1478,17 @@ with header_col2:
     )
 
     st.markdown(
-    f"""
-    <div style="
-        text-align:right;
-        color:#7f8795;
-        font-size:12px;
-        margin-top:2px;
-    ">
-        Updated: {datetime.now().strftime("%H:%M:%S")}
-    </div>
-    """,
-    unsafe_allow_html=True
+        f"""
+        <div style="
+            text-align:right;
+            color:#7f8795;
+            font-size:12px;
+            margin-top:2px;
+        ">
+            Updated: {last_updated}
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
 
@@ -2348,7 +1643,27 @@ if refresh_seconds > 0:
                 f"Auto refresh failed: {e}"
             )
             
+# ============================================================
+# TAB 1 — DASHBOARD
+# ============================================================
+# ============================================================
+# NAVIGATION
+# ============================================================
 
+tabs = st.tabs(
+    [
+        "DASHBOARD",
+        "OPTION CHAIN",
+        "OI ANALYSIS",
+        "VOLUME",
+        "IV",
+        "PCR",
+        "SIGNALS",
+        "STRATEGY",
+        "BACKTEST",
+        "HISTORICAL",
+    ]
+)
 with tabs[0]:
 
     # --------------------------------------------------------
@@ -2579,7 +1894,7 @@ with tabs[2]:
         )
 
     st.markdown(
-        dedent(f"""
+        f"""
         <div class="level-card">
             <span class="support">
                 SUPPORT: {format_integer(metrics["support"])}
@@ -2589,7 +1904,7 @@ with tabs[2]:
                 RESISTANCE: {format_integer(metrics["resistance"])}
             </span>
         </div>
-        """),
+        """,
         unsafe_allow_html=True
     )
 
@@ -2885,7 +2200,7 @@ with tabs[6]:
     with s1:
 
         st.markdown(
-            dedent("""
+            """
             <div style="
                 background:#11151c;
                 border:1px solid #292e38;
@@ -2901,7 +2216,7 @@ with tabs[6]:
                     {pcr_value}
                 </div>
             </div>
-            """).format(pcr_value=metrics["pcr_bias"]),
+            """.format(pcr_value=metrics["pcr_bias"]),
             unsafe_allow_html=True
         )
 
@@ -2924,7 +2239,7 @@ with tabs[6]:
         }.get(oi_signal, "#f1c75b")
 
         st.markdown(
-            dedent("""
+            """
             <div style="
                 background:#11151c;
                 border:1px solid #292e38;
@@ -2940,14 +2255,14 @@ with tabs[6]:
                     {oi_value}
                 </div>
             </div>
-            """).format(oi_color=oi_color, oi_value=oi_signal),
+            """.format(oi_color=oi_color, oi_value=oi_signal),
             unsafe_allow_html=True
         )
 
     with s3:
 
         st.markdown(
-            dedent("""
+            """
             <div style="
                 background:#11151c;
                 border:1px solid #292e38;
@@ -2966,13 +2281,14 @@ with tabs[6]:
                     Score: {score_value}
                 </div>
             </div>
-            """).format(
+            """.format(
                 market_value=bias,
                 score_value=metrics["score"]
             ),
             unsafe_allow_html=True
         )
 
+    st.write("")
 
     # --------------------------------------------------------
     # STRIKE SIGNALS
@@ -3303,26 +2619,6 @@ with tabs[9]:
                 "value"
             ]
         )
-                # ----------------------------------------------------
-        # HISTORY RANGE FILTER
-        # ----------------------------------------------------
-
-        if history_range != "ALL":
-
-            range_map = {
-                "LAST 20": 20,
-                "LAST 50": 50,
-                "LAST 100": 100
-            }
-
-            limit = range_map.get(
-                history_range,
-                len(chart_df)
-            )
-
-            chart_df = chart_df.tail(
-                limit
-            ).reset_index(drop=True)
 
         # ----------------------------------------------------
         # CURRENT VALUE CARDS
@@ -3386,6 +2682,252 @@ with tabs[9]:
                     "SNAPSHOTS",
                     len(chart_df)
                 )
+# --------------------------------------------------------
+# MULTI-GREEK HISTORICAL DASHBOARD
+# --------------------------------------------------------
+
+st.markdown(
+    '<div class="section-title">Greek History Monitor</div>',
+    unsafe_allow_html=True
+)
+
+greek_names = [
+    "IV",
+    "DELTA",
+    "GAMMA",
+    "THETA",
+    "VEGA",
+    "POP"
+]
+
+greek_columns = {
+    "IV": "iv",
+    "DELTA": "delta",
+    "GAMMA": "gamma",
+    "THETA": "theta",
+    "VEGA": "vega",
+    "POP": "pop"
+}
+
+greek_data = {}
+
+for greek_name in greek_names:
+
+    try:
+
+        greek_history = get_greek_history(
+            strike=historical_strike,
+            option_type=option_type,
+            expiry=historical_expiry
+        )
+
+        column_name = (
+            f"{prefix}_"
+            f"{greek_columns[greek_name]}"
+        )
+
+        if (
+            not greek_history.empty
+            and column_name in greek_history.columns
+        ):
+
+            temp = greek_history[
+                [
+                    "fetch_time",
+                    column_name
+                ]
+            ].copy()
+
+            temp = temp.rename(
+                columns={
+                    column_name: "value"
+                }
+            )
+
+            temp["fetch_time"] = pd.to_datetime(
+                temp["fetch_time"],
+                errors="coerce"
+            )
+
+            temp["value"] = pd.to_numeric(
+                temp["value"],
+                errors="coerce"
+            )
+
+            temp = temp.dropna(
+                subset=[
+                    "fetch_time",
+                    "value"
+                ]
+            )
+
+            # Apply selected history range
+            if history_range != "ALL":
+
+                range_map = {
+                    "LAST 20": 20,
+                    "LAST 50": 50,
+                    "LAST 100": 100
+                }
+
+                temp = temp.tail(
+                    range_map[history_range]
+                )
+
+            greek_data[greek_name] = temp
+
+    except Exception:
+        greek_data[greek_name] = pd.DataFrame()
+
+
+def render_greek_chart(
+    greek_name,
+    data
+):
+
+    if data.empty:
+
+        st.info(
+            f"No {greek_name} history available"
+        )
+
+        return
+
+    latest = data[
+        "value"
+    ].iloc[-1]
+
+    previous = (
+        data["value"].iloc[-2]
+        if len(data) > 1
+        else np.nan
+    )
+
+    if pd.isna(previous):
+
+        change_text = "—"
+
+    else:
+
+        change_text = (
+            f"{latest - previous:+.4f}"
+        )
+
+    st.markdown(
+        f"**{greek_name}**  "
+        f"`{latest:.4f}`  "
+        f"`Δ {change_text}`"
+    )
+
+    chart = (
+        alt.Chart(data)
+        .mark_line(
+            point=False
+        )
+        .encode(
+            x=alt.X(
+                "fetch_time:T",
+                title=None
+            ),
+            y=alt.Y(
+                "value:Q",
+                title=None
+            ),
+            tooltip=[
+                alt.Tooltip(
+                    "fetch_time:T",
+                    title="Time"
+                ),
+                alt.Tooltip(
+                    "value:Q",
+                    title=greek_name,
+                    format=".4f"
+                )
+            ]
+        )
+        .properties(
+            height=170
+        )
+    )
+
+    st.altair_chart(
+        chart,
+        width="stretch"
+    )
+
+
+# --------------------------------------------------------
+# GREEK ROW 1
+# --------------------------------------------------------
+
+g1, g2, g3 = st.columns(3)
+
+with g1:
+
+    render_greek_chart(
+        "IV",
+        greek_data.get(
+            "IV",
+            pd.DataFrame()
+        )
+    )
+
+with g2:
+
+    render_greek_chart(
+        "DELTA",
+        greek_data.get(
+            "DELTA",
+            pd.DataFrame()
+        )
+    )
+
+with g3:
+
+    render_greek_chart(
+        "GAMMA",
+        greek_data.get(
+            "GAMMA",
+            pd.DataFrame()
+        )
+    )
+
+
+# --------------------------------------------------------
+# GREEK ROW 2
+# --------------------------------------------------------
+
+g4, g5, g6 = st.columns(3)
+
+with g4:
+
+    render_greek_chart(
+        "THETA",
+        greek_data.get(
+            "THETA",
+            pd.DataFrame()
+        )
+    )
+
+with g5:
+
+    render_greek_chart(
+        "VEGA",
+        greek_data.get(
+            "VEGA",
+            pd.DataFrame()
+        )
+    )
+
+with g6:
+
+    render_greek_chart(
+        "POP",
+        greek_data.get(
+            "POP",
+            pd.DataFrame()
+        )
+    )
 # --------------------------------------------------------
 # HISTORICAL STRUCTURE
 # --------------------------------------------------------
@@ -3641,746 +3183,4 @@ else:
         "Historical price/OI data is not available "
         "for this strike."
     )
-# ============================================================
-# ============================================================
-# TAB 11 — NIFTY CHART
-# ============================================================
-
-with tabs[10]:
-
-    st.markdown(
-        '<div class="section-title">NIFTY PRICE CHART</div>',
-        unsafe_allow_html=True
-    )
-
-    # --------------------------------------------------------
-    # CHART CONTROLS
-    # --------------------------------------------------------
-
-    control_1, control_2, control_3, control_4 = st.columns([1.25, 0.85, 1.55, 1.25])
-
-    with control_1:
-        chart_interval_label = st.selectbox(
-            "TIMEFRAME",
-            [
-                "1 MINUTE",
-                "5 MINUTE",
-                "15 MINUTE",
-                "30 MINUTE",
-                "60 MINUTE",
-            ],
-            index=1,
-            key="nifty_chart_interval",
-        )
-
-    with control_2:
-        chart_days = st.selectbox(
-            "HISTORY",
-            [1, 3, 5, 10],
-            index=2,
-            key="nifty_chart_days",
-        )
-
-    with control_3:
-        overlay_options = [
-            "EMA 9",
-            "EMA 20",
-            "EMA 50",
-            "EMA 200",
-            "VWAP",
-            "BOLLINGER BANDS",
-            "SUPERTREND",
-        ]
-        selected_overlays = st.multiselect(
-            "OVERLAYS",
-            overlay_options,
-            default=["EMA 20", "VWAP"],
-            key="nifty_chart_overlays",
-        )
-
-    with control_4:
-        lower_indicator = st.selectbox(
-            "INDICATOR PANEL",
-            ["OFF", "RSI", "MACD", "ATR", "VOLUME"],
-            index=1,
-            key="nifty_chart_lower_indicator",
-        )
-
-    interval_map = {
-        "1 MINUTE": "1minute",
-        "5 MINUTE": "5minute",
-        "15 MINUTE": "15minute",
-        "30 MINUTE": "30minute",
-        "60 MINUTE": "60minute",
-    }
-    chart_interval = interval_map.get(chart_interval_label, "5minute")
-
-    # --------------------------------------------------------
-    # LOAD NIFTY OHLC DATA
-    # --------------------------------------------------------
-
-    try:
-        chart_df = prepare_nifty_chart_data(
-            interval=chart_interval,
-            days=chart_days,
-        )
-    except Exception as e:
-        st.error(f"NIFTY chart data error: {e}")
-        chart_df = pd.DataFrame()
-
-    # --------------------------------------------------------
-    # SAFE OHLC VALIDATION
-    # --------------------------------------------------------
-
-    if not chart_df.empty:
-        chart_df = chart_df.copy()
-
-        required_ohlc = [
-            "timestamp",
-            "open",
-            "high",
-            "low",
-            "close",
-        ]
-
-        missing_ohlc = [
-            col for col in required_ohlc
-            if col not in chart_df.columns
-        ]
-
-        if missing_ohlc:
-            st.error(
-                "NIFTY chart is missing required OHLC fields: "
-                + ", ".join(missing_ohlc)
-            )
-            chart_df = pd.DataFrame()
-        else:
-            chart_df["timestamp"] = pd.to_datetime(
-                chart_df["timestamp"],
-                errors="coerce",
-            )
-
-            for col in ["open", "high", "low", "close", "volume"]:
-                if col in chart_df.columns:
-                    chart_df[col] = pd.to_numeric(
-                        chart_df[col],
-                        errors="coerce",
-                    )
-
-            chart_df = chart_df.dropna(
-                subset=required_ohlc
-            )
-
-            # Reject malformed candles instead of allowing one bad
-            # historical row to distort the entire price scale.
-            valid_ohlc = (
-                (chart_df["open"] > 0)
-                & (chart_df["high"] > 0)
-                & (chart_df["low"] > 0)
-                & (chart_df["close"] > 0)
-                & (chart_df["high"] >= chart_df[["open", "close"]].max(axis=1))
-                & (chart_df["low"] <= chart_df[["open", "close"]].min(axis=1))
-                & (chart_df["high"] >= chart_df["low"])
-            )
-
-            chart_df = chart_df.loc[valid_ohlc].copy()
-            chart_df = chart_df.sort_values("timestamp")
-            chart_df = chart_df.drop_duplicates(
-                subset=["timestamp"],
-                keep="last",
-            ).reset_index(drop=True)
-
-            if "volume" in chart_df.columns:
-                chart_df["volume"] = chart_df["volume"].clip(lower=0)
-
-    # --------------------------------------------------------
-    # PRICE ACTION ENGINE
-    # --------------------------------------------------------
-
-    if not chart_df.empty:
-        try:
-            price_action = run_price_action_engine(chart_df)
-            if isinstance(price_action, dict):
-                returned_data = price_action.get("data")
-                if isinstance(returned_data, pd.DataFrame) and not returned_data.empty:
-                    chart_df = returned_data.copy()
-            else:
-                price_action = {}
-        except Exception as e:
-            st.warning(f"Price action analysis skipped: {e}")
-            price_action = {}
-    else:
-        price_action = {}
-
-    # --------------------------------------------------------
-    # PATTERN ENGINE
-    # --------------------------------------------------------
-
-    if not chart_df.empty:
-        try:
-            pattern_result = run_pattern_engine(chart_df)
-            if isinstance(pattern_result, dict):
-                returned_data = pattern_result.get("data")
-                if isinstance(returned_data, pd.DataFrame) and not returned_data.empty:
-                    chart_df = returned_data.copy()
-            else:
-                pattern_result = {}
-        except Exception as e:
-            st.warning(f"Pattern analysis skipped: {e}")
-            pattern_result = {}
-    else:
-        pattern_result = {}
-
-    # --------------------------------------------------------
-    # FINAL SAFETY CHECK AFTER ANALYTICS ENGINES
-    # --------------------------------------------------------
-
-    if not chart_df.empty:
-        chart_df = chart_df.copy()
-        chart_df["timestamp"] = pd.to_datetime(
-            chart_df["timestamp"],
-            errors="coerce",
-        )
-        chart_df = chart_df.dropna(
-            subset=["timestamp", "open", "high", "low", "close"]
-        )
-        chart_df = chart_df.sort_values("timestamp").reset_index(drop=True)
-
-    if chart_df.empty:
-        st.warning(
-            "No valid NIFTY historical OHLC data is available for the selected timeframe/history."
-        )
-    else:
-        latest = chart_df.iloc[-1]
-        price = safe_number(latest.get("close"), 0)
-
-        previous_close = (
-            safe_number(chart_df["close"].iloc[-2], price)
-            if len(chart_df) > 1
-            else price
-        )
-
-        change = price - previous_close
-        change_pct = (
-            (change / previous_close) * 100
-            if previous_close != 0
-            else 0
-        )
-
-        # ----------------------------------------------------
-        # TOP PRICE CARDS
-        # ----------------------------------------------------
-
-        m1, m2, m3, m4, m5 = st.columns(5)
-
-        with m1:
-            st.metric("NIFTY", f"{price:,.2f}")
-
-        with m2:
-            st.metric("CHANGE", f"{change:+,.2f}")
-
-        with m3:
-            st.metric("CHANGE %", f"{change_pct:+.2f}%")
-
-        with m4:
-            st.metric("CANDLES", f"{len(chart_df):,}")
-
-        with m5:
-            latest_signal = str(
-                latest.get("signal", "NEUTRAL")
-            )
-            st.metric("SIGNAL", latest_signal)
-
-        # ----------------------------------------------------
-        # MARKET INTELLIGENCE
-        # ----------------------------------------------------
-
-        trend_value = price_action.get("trend", "UNKNOWN")
-        support = price_action.get("support", np.nan)
-        resistance = price_action.get("resistance", np.nan)
-        volume_value = price_action.get("volume_signal", "NO DATA")
-
-        adx_value = latest.get("adx", np.nan)
-        adx_strength = latest.get("adx_strength", "NO DATA")
-        adx_direction = latest.get("adx_direction", "NEUTRAL")
-        supertrend_signal = latest.get("supertrend_signal", "NEUTRAL")
-        signal_score = safe_number(
-            latest.get("signal_score", 0),
-            0,
-        )
-
-        ia1, ia2, ia3, ia4, ia5 = st.columns(5)
-
-        with ia1:
-            st.metric("TREND", str(trend_value))
-
-        with ia2:
-            st.metric(
-                "SUPPORT",
-                "-" if pd.isna(support) else f"{float(support):,.2f}",
-            )
-
-        with ia3:
-            st.metric(
-                "RESISTANCE",
-                "-" if pd.isna(resistance) else f"{float(resistance):,.2f}",
-            )
-
-        with ia4:
-            st.metric(
-                "ADX",
-                "-" if pd.isna(adx_value) else f"{float(adx_value):,.2f}",
-            )
-
-        with ia5:
-            st.metric(
-                "SCORE",
-                f"{signal_score:+.1f}",
-                str(volume_value),
-            )
-
-        # ----------------------------------------------------
-        # PATTERN SUMMARY
-        # ----------------------------------------------------
-
-        pattern_name = pattern_result.get(
-            "latest_pattern",
-            latest.get("PRIMARY_PATTERN", "NO DATA"),
-        ) or "NO DATA"
-
-        pattern_bias = pattern_result.get(
-            "pattern_bias",
-            "NEUTRAL",
-        ) or "NEUTRAL"
-
-        pattern_score = int(
-            safe_number(
-                pattern_result.get(
-                    "pattern_score",
-                    latest.get("PATTERN_SCORE", 0),
-                ),
-                0,
-            )
-        )
-
-        pattern_color = {
-            "BULLISH": "#00e59a",
-            "BEARISH": "#ff5c67",
-            "NEUTRAL": "#f1c75b",
-        }.get(
-            str(pattern_bias).upper(),
-            "#f1c75b",
-        )
-
-        st.html(
-            dedent(f"""
-            <div style="background:#11151c; border:1px solid #292e38; border-radius:10px; padding:10px 14px; margin-top:6px; margin-bottom:8px;">
-                <div style="color:#8f98a8; font-size:10px; font-weight:800; letter-spacing:0.8px;">CANDLESTICK PATTERN</div>
-                <div style="color:{pattern_color}; font-size:17px; font-weight:800; margin-top:3px;">{pattern_name}</div>
-                <div style="color:#8f98a8; font-size:11px; margin-top:3px;">Bias: <span style="color:{pattern_color}; font-weight:700;">{pattern_bias}</span> &nbsp; | &nbsp; Score: <span style="color:#f5f7fa; font-weight:700;">{pattern_score:+d}</span> &nbsp; | &nbsp; DI: <span style="color:#f5f7fa; font-weight:700;">{adx_direction}</span> &nbsp; | &nbsp; ADX: <span style="color:#f5f7fa; font-weight:700;">{adx_strength}</span> &nbsp; | &nbsp; ST: <span style="color:#f5f7fa; font-weight:700;">{supertrend_signal}</span></div>
-            </div>
-            """),
-        )
-
-        # ----------------------------------------------------
-        # CANDLESTICK CHART
-        # ----------------------------------------------------
-
-        chart_data = chart_df.copy()
-
-        # Keep the chart responsive while retaining enough history
-        # for the selected timeframe.
-        if len(chart_data) > 6000:
-            chart_data = chart_data.tail(6000).reset_index(drop=True)
-
-        x_axis = alt.X(
-            "timestamp:T",
-            title="TIME",
-            axis=alt.Axis(
-                format="%d %b %H:%M",
-                labelOverlap=True,
-                grid=False,
-            ),
-        )
-
-        price_scale = alt.Scale(zero=False)
-
-        base = alt.Chart(chart_data).encode(
-            x=x_axis,
-        )
-
-        candle_color = alt.condition(
-            alt.datum.close >= alt.datum.open,
-            alt.value("#00d995"),
-            alt.value("#ff4654"),
-        )
-
-        wick = base.mark_rule(
-            strokeWidth=1,
-        ).encode(
-            y=alt.Y(
-                "low:Q",
-                title="NIFTY",
-                scale=price_scale,
-            ),
-            y2="high:Q",
-            color=candle_color,
-        )
-
-        body_size = {
-            "1minute": 4,
-            "5minute": 6,
-            "15minute": 8,
-            "30minute": 10,
-            "60minute": 12,
-        }.get(chart_interval, 6)
-
-        body = base.mark_bar(
-            size=body_size,
-        ).encode(
-            y=alt.Y(
-                "open:Q",
-                title="NIFTY",
-                scale=price_scale,
-            ),
-            y2="close:Q",
-            color=candle_color,
-        )
-
-        layers = [wick, body]
-
-        # ----------------------------------------------------
-        # OVERLAYS
-        # ----------------------------------------------------
-
-        overlay_map = {
-            "EMA 9": "ema_9",
-            "EMA 20": "ema_20",
-            "EMA 50": "ema_50",
-            "EMA 200": "ema_200",
-            "VWAP": "vwap",
-            "SUPERTREND": "supertrend",
-        }
-
-        for label in selected_overlays:
-            column = overlay_map.get(label)
-            if column is None or column not in chart_data.columns:
-                continue
-
-            overlay_df = chart_data[
-                ["timestamp", column]
-            ].copy()
-            overlay_df[column] = pd.to_numeric(
-                overlay_df[column],
-                errors="coerce",
-            )
-            overlay_df = overlay_df.dropna(
-                subset=[column]
-            )
-
-            if overlay_df.empty:
-                continue
-
-            line = alt.Chart(overlay_df).mark_line(
-                strokeWidth=1.5,
-            ).encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="TIME",
-                    axis=alt.Axis(
-                        format="%d %b %H:%M",
-                        labelOverlap=True,
-                        grid=False,
-                    ),
-                ),
-                y=alt.Y(
-                    f"{column}:Q",
-                    title="NIFTY",
-                    scale=price_scale,
-                ),
-                tooltip=[
-                    alt.Tooltip(
-                        "timestamp:T",
-                        title="Time",
-                    ),
-                    alt.Tooltip(
-                        f"{column}:Q",
-                        title=label,
-                        format=",.2f",
-                    ),
-                ],
-            )
-            layers.append(line)
-
-        if "BOLLINGER BANDS" in selected_overlays:
-            bb_df = chart_data[
-                [
-                    "timestamp",
-                    "bb_upper",
-                    "bb_middle",
-                    "bb_lower",
-                ]
-            ].copy()
-
-            for col in ["bb_upper", "bb_middle", "bb_lower"]:
-                bb_df[col] = pd.to_numeric(
-                    bb_df[col],
-                    errors="coerce",
-                )
-
-            bb_df = bb_df.dropna(
-                subset=[
-                    "bb_upper",
-                    "bb_middle",
-                    "bb_lower",
-                ],
-                how="all",
-            )
-
-            if not bb_df.empty:
-                for column, label in [
-                    ("bb_upper", "BB Upper"),
-                    ("bb_middle", "BB Middle"),
-                    ("bb_lower", "BB Lower"),
-                ]:
-                    line = alt.Chart(bb_df).mark_line(
-                        strokeWidth=1,
-                        strokeDash=[4, 3] if column != "bb_middle" else [1, 0],
-                    ).encode(
-                        x=alt.X(
-                            "timestamp:T",
-                            title="TIME",
-                            axis=alt.Axis(
-                                format="%d %b %H:%M",
-                                labelOverlap=True,
-                                grid=False,
-                            ),
-                        ),
-                        y=alt.Y(
-                            f"{column}:Q",
-                            title="NIFTY",
-                            scale=price_scale,
-                        ),
-                        tooltip=[
-                            alt.Tooltip(
-                                "timestamp:T",
-                                title="Time",
-                            ),
-                            alt.Tooltip(
-                                f"{column}:Q",
-                                title=label,
-                                format=",.2f",
-                            ),
-                        ],
-                    )
-                    layers.append(line)
-
-        # ----------------------------------------------------
-        # PATTERN MARKERS
-        # ----------------------------------------------------
-
-        marker_columns = [
-            "timestamp",
-            "high",
-            "low",
-            "atr",
-            "PRIMARY_PATTERN",
-            "PATTERN_BIAS",
-            "PATTERN_SCORE",
-        ]
-
-        available_marker_columns = [
-            col for col in marker_columns
-            if col in chart_data.columns
-        ]
-
-        pattern_markers = chart_data[
-            available_marker_columns
-        ].copy()
-
-        if "PRIMARY_PATTERN" in pattern_markers.columns:
-            pattern_markers = pattern_markers[
-                pattern_markers["PRIMARY_PATTERN"].notna()
-                & (pattern_markers["PRIMARY_PATTERN"].astype(str) != "NONE")
-                & (pattern_markers["PRIMARY_PATTERN"].astype(str) != "")
-            ]
-
-        pattern_markers = pattern_markers.tail(60).copy()
-
-        if not pattern_markers.empty:
-            if "atr" not in pattern_markers.columns:
-                pattern_markers["atr"] = 10.0
-
-            pattern_markers["atr"] = pd.to_numeric(
-                pattern_markers["atr"],
-                errors="coerce",
-            ).fillna(10.0)
-
-            if "PATTERN_BIAS" not in pattern_markers.columns:
-                pattern_markers["PATTERN_BIAS"] = "NEUTRAL"
-
-            if "PATTERN_SCORE" not in pattern_markers.columns:
-                pattern_markers["PATTERN_SCORE"] = 0
-
-            bullish_markers_df = pattern_markers[
-                pattern_markers["PATTERN_BIAS"].astype(str).str.upper() == "BULLISH"
-            ].copy()
-            bearish_markers_df = pattern_markers[
-                pattern_markers["PATTERN_BIAS"].astype(str).str.upper() == "BEARISH"
-            ].copy()
-
-            if not bullish_markers_df.empty:
-                bullish_markers_df["marker_price"] = (
-                    bullish_markers_df["low"]
-                    - bullish_markers_df["atr"] * 0.35
-                )
-                layers.append(
-                    alt.Chart(bullish_markers_df).mark_point(
-                        shape="triangle-up",
-                        size=90,
-                        filled=True,
-                    ).encode(
-                        x="timestamp:T",
-                        y=alt.Y(
-                            "marker_price:Q",
-                            scale=price_scale,
-                        ),
-                        tooltip=[
-                            alt.Tooltip("timestamp:T", title="Time"),
-                            alt.Tooltip("PRIMARY_PATTERN:N", title="Pattern"),
-                            alt.Tooltip("PATTERN_BIAS:N", title="Bias"),
-                            alt.Tooltip("PATTERN_SCORE:Q", title="Score"),
-                        ],
-                    )
-                )
-
-            if not bearish_markers_df.empty:
-                bearish_markers_df["marker_price"] = (
-                    bearish_markers_df["high"]
-                    + bearish_markers_df["atr"] * 0.35
-                )
-                layers.append(
-                    alt.Chart(bearish_markers_df).mark_point(
-                        shape="triangle-down",
-                        size=90,
-                        filled=True,
-                    ).encode(
-                        x="timestamp:T",
-                        y=alt.Y(
-                            "marker_price:Q",
-                            scale=price_scale,
-                        ),
-                        tooltip=[
-                            alt.Tooltip("timestamp:T", title="Time"),
-                            alt.Tooltip("PRIMARY_PATTERN:N", title="Pattern"),
-                            alt.Tooltip("PATTERN_BIAS:N", title="Bias"),
-                            alt.Tooltip("PATTERN_SCORE:Q", title="Score"),
-                        ],
-                    )
-                )
-
-        final_chart = alt.layer(*layers).properties(
-            height=440,
-        ).configure_view(
-            stroke=None,
-        )
-
-        st.altair_chart(
-            final_chart.interactive(),
-            width="stretch",
-        )
-
-        # ----------------------------------------------------
-        # LOWER INDICATOR PANEL
-        # ----------------------------------------------------
-
-        if lower_indicator != "OFF":
-            indicator_column_map = {
-                "RSI": "rsi",
-                "MACD": "macd",
-                "ATR": "atr",
-                "VOLUME": "volume",
-            }
-
-            indicator_column = indicator_column_map.get(
-                lower_indicator
-            )
-
-            if indicator_column in chart_data.columns:
-                indicator_df = chart_data[
-                    ["timestamp", indicator_column]
-                ].copy()
-                indicator_df[indicator_column] = pd.to_numeric(
-                    indicator_df[indicator_column],
-                    errors="coerce",
-                )
-                indicator_df = indicator_df.dropna(
-                    subset=[indicator_column]
-                )
-
-                if not indicator_df.empty:
-                    indicator_chart = alt.Chart(
-                        indicator_df
-                    ).mark_line(
-                        strokeWidth=1.5,
-                    ).encode(
-                        x=alt.X(
-                            "timestamp:T",
-                            title="TIME",
-                            axis=alt.Axis(
-                                format="%d %b %H:%M",
-                                labelOverlap=True,
-                                grid=False,
-                            ),
-                        ),
-                        y=alt.Y(
-                            f"{indicator_column}:Q",
-                            title=lower_indicator,
-                        ),
-                        tooltip=[
-                            alt.Tooltip(
-                                "timestamp:T",
-                                title="Time",
-                            ),
-                            alt.Tooltip(
-                                f"{indicator_column}:Q",
-                                title=lower_indicator,
-                                format=",.2f",
-                            ),
-                        ],
-                    ).properties(
-                        height=170,
-                    ).configure_view(
-                        stroke=None,
-                    )
-
-                    st.markdown(
-                        f"### {lower_indicator}",
-                    )
-                    st.altair_chart(
-                        indicator_chart.interactive(),
-                        width="stretch",
-                    )
-
-        # ----------------------------------------------------
-        # FINAL INDICATOR SNAPSHOT
-        # ----------------------------------------------------
-
-        snap_cols = [
-            ("EMA 9", "ema_9"),
-            ("EMA 20", "ema_20"),
-            ("EMA 50", "ema_50"),
-            ("EMA 200", "ema_200"),
-            ("RSI", "rsi"),
-        ]
-
-        snapshot_columns = st.columns(len(snap_cols))
-
-        for col_ui, (label, column) in zip(snapshot_columns, snap_cols):
-            with col_ui:
-                value = latest.get(column, np.nan)
-                st.metric(
-                    label,
-                    "-" if pd.isna(value) else f"{float(value):,.2f}",
-                )
-
+            

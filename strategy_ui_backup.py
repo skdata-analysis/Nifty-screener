@@ -1037,10 +1037,7 @@ def render_strategy_tab(df, spot, atm, expiry):
     net_premium = risk["net_premium"]
     risk_max_profit = risk["max_profit"]
     risk_max_loss = risk["max_loss"]
-    risk_breakevens = risk.get(
-        "breakevens",
-        risk.get("breakeven_points", [])
-    )
+    risk_breakevens = risk["breakevens"]
 
     payoff_max_profit = payoff_df["strategy_pnl"].max()
     payoff_max_loss = payoff_df["strategy_pnl"].min()

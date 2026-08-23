@@ -591,7 +591,6 @@ def display_results(
     results,
     trade=None
 ):
-
     if results is None:
         return
 
